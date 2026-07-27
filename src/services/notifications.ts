@@ -1,18 +1,30 @@
 import { API_BASE_URL } from "../config/api";
 import { AppNotificationRecord } from "../types/notification";
+import { NotificationPreferences } from "../types/auth";
 
 type NotificationEnvelope = {
   notifications: AppNotificationRecord[];
   message?: string;
 };
 
-type RequestMethod = "GET" | "PATCH";
+type NotificationPreferencesEnvelope = {
+  notificationPreferences: NotificationPreferences;
+  message?: string;
+};
 
-async function request(
+type OkEnvelope = {
+  ok: true;
+  message?: string;
+};
+
+type RequestMethod = "GET" | "PATCH" | "POST" | "DELETE";
+
+async function request<TResponse>(
   path: string,
   token: string,
   method: RequestMethod,
-) {
+  body?: Record<string, unknown>,
+): Promise<TResponse> {
   let response: Response;
 
   try {
@@ -23,6 +35,7 @@ async function request(
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
+      body: body == null ? undefined : JSON.stringify(body),
     });
   } catch (error) {
     throw new Error(
@@ -33,7 +46,7 @@ async function request(
   }
 
   const text = await response.text();
-  const data = text ? (JSON.parse(text) as NotificationEnvelope) : null;
+  const data = text ? (JSON.parse(text) as { message?: string }) : null;
 
   if (!response.ok) {
     throw new Error(
@@ -43,13 +56,45 @@ async function request(
     );
   }
 
-  return data as NotificationEnvelope;
+  return data as TResponse;
 }
 
 export async function fetchNotifications(token: string) {
-  return request("/notifications", token, "GET");
+  return request<NotificationEnvelope>("/notifications", token, "GET");
 }
 
 export async function markAllNotificationsRead(token: string) {
-  return request("/notifications/mark-all-read", token, "PATCH");
+  return request<NotificationEnvelope>(
+    "/notifications/mark-all-read",
+    token,
+    "PATCH",
+  );
+}
+
+export async function registerPushToken(token: string, pushToken: string) {
+  return request<OkEnvelope>("/notifications/push-token", token, "POST", {
+    token: pushToken,
+  });
+}
+
+export async function unregisterPushToken(token: string, pushToken: string) {
+  return request<OkEnvelope>("/notifications/push-token", token, "DELETE", {
+    token: pushToken,
+  });
+}
+
+export async function saveNotificationPreferences(
+  token: string,
+  preferences: NotificationPreferences,
+) {
+  return request<NotificationPreferencesEnvelope>(
+    "/notifications/preferences",
+    token,
+    "PATCH",
+    preferences,
+  );
+}
+
+export async function sendTestNotification(token: string) {
+  return request<OkEnvelope>("/notifications/test", token, "POST");
 }

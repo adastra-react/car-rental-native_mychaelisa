@@ -3,9 +3,9 @@ import { StyleSheet } from "react-native";
 import { colors, radii, spacing, typography } from "../../theme/tokens";
 
 const palette = colors.dark;
-
 export const discoveryStyles = StyleSheet.create({
   scrollContent: {
+    paddingHorizontal: spacing.screen,
     paddingBottom: spacing.hero,
     gap: spacing.lg,
   },
@@ -150,9 +150,14 @@ export const discoveryStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  discoveryHorizontalScroller: {
+    marginLeft: -spacing.screen,
+    marginRight: -spacing.screen,
+  },
   discoveryCategoryRow: {
     gap: spacing.sm,
-    paddingRight: spacing.md,
+    paddingLeft: spacing.screen,
+    paddingRight: spacing.screen,
   },
   discoveryCategoryChip: {
     flexDirection: "row",
@@ -228,7 +233,8 @@ export const discoveryStyles = StyleSheet.create({
   },
   discoveryRail: {
     gap: spacing.sm,
-    paddingRight: spacing.sm,
+    paddingLeft: spacing.screen,
+    paddingRight: spacing.screen,
   },
   discoveryVehicleCard: {
     width: 152,

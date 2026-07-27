@@ -16,6 +16,12 @@ export type UploadedLicense = {
   reviewedAt?: string;
 };
 
+export type NotificationPreferences = {
+  bookingUpdates: boolean;
+  chatMessages: boolean;
+  paymentAndClaims: boolean;
+};
+
 export type AuthUser = {
   id: string;
   email: string;
@@ -25,6 +31,7 @@ export type AuthUser = {
   bio: string;
   license: UploadedLicense | null;
   documents: UploadedDocument[];
+  notificationPreferences?: NotificationPreferences;
   createdAt?: string;
   updatedAt?: string;
 };

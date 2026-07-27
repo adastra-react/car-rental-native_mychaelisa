@@ -6,6 +6,17 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "default",
+          "color": "#20E6A4"
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-font"
+    ],
     "ios": {
       "bundleIdentifier": "com.mychaelisa.carrental",
       "supportsTablet": true,
@@ -30,17 +41,6 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [
-      [
-        "expo-notifications",
-        {
-          "defaultChannel": "default",
-          "color": "#20E6A4"
-        }
-      ],
-      "@react-native-community/datetimepicker",
-      "expo-font"
-    ],
     "extra": {
       "eas": {
         "projectId": "1dad3d90-4e9e-477c-b8ac-53648053bf54"
