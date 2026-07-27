@@ -7,9 +7,11 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
+      "bundleIdentifier": "com.mychaelisa.carrental",
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Your location is used to show nearby rental vehicles and pickup areas."
+        "NSLocationWhenInUseUsageDescription": "Your location is used to show nearby rental vehicles and pickup areas.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -27,6 +29,22 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "default",
+          "color": "#20E6A4"
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1dad3d90-4e9e-477c-b8ac-53648053bf54"
+      }
     }
   }
 }
