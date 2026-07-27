@@ -206,6 +206,7 @@ export function RenterHomeScreen({
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.discoveryHorizontalScroller}
         contentContainerStyle={styles.discoveryCategoryRow}>
         {categoryChips.map((chip) => (
           <DiscoveryCategoryChip
@@ -310,6 +311,7 @@ export function RenterHomeScreen({
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
+                style={styles.discoveryHorizontalScroller}
                 contentContainerStyle={styles.discoveryRail}>
                 {section.vehicles.map((vehicle, index) => (
                   <DiscoveryVehicleCard
@@ -341,6 +343,7 @@ export function RenterHomeScreen({
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
+            style={styles.discoveryHorizontalScroller}
             contentContainerStyle={styles.discoveryRail}>
             {homeCategoryListings.map((vehicle, index) => (
               <DiscoveryVehicleCard

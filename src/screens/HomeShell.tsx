@@ -3,7 +3,7 @@ import DateTimePicker, {
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import {
   ActivityIndicator,
@@ -14,7 +14,6 @@ import {
   Linking,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -22,8 +21,10 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { AppMode, BottomNav } from "../components/BottomNav";
+import { createSocket, disconnectSocket } from "../components/socket";
 import {
   createBooking,
   fetchMyBookings,
@@ -33,7 +34,16 @@ import {
 import {
   fetchNotifications,
   markAllNotificationsRead,
+  registerPushToken as registerPushTokenOnServer,
+  saveNotificationPreferences,
+  sendTestNotification,
+  unregisterPushToken as unregisterPushTokenOnServer,
 } from "../services/notifications";
+import {
+  Notifications,
+  scheduleLocalDemoNotificationAsync,
+  registerForPushNotificationsAsync,
+} from "../services/pushNotifications";
 import {
   MockChat,
   MockListing,
@@ -41,7 +51,6 @@ import {
   MockPickupPoint,
   MockPayout,
   MockTrip,
-  mockChats,
   mockListings,
   mockPayouts,
   mockPickupPoints,
@@ -58,9 +67,13 @@ import {
   updateVehicleListingStatus,
   uploadVehiclePhotos,
 } from "../services/vehicles";
-import { signOut } from "../store/authSlice";
+import { signOut, updateUser } from "../store/authSlice";
 import { AppDispatch, RootState } from "../store";
-import { AuthUser, LicenseVerificationStatus } from "../types/auth";
+import {
+  AuthUser,
+  LicenseVerificationStatus,
+  NotificationPreferences,
+} from "../types/auth";
 import { BookingRecord } from "../types/booking";
 import { AppNotificationRecord } from "../types/notification";
 import {
@@ -129,11 +142,7 @@ type SavedPaymentMethod = {
   nickname?: string;
 };
 
-type NotificationSettings = {
-  bookingUpdates: boolean;
-  chatMessages: boolean;
-  paymentAndClaims: boolean;
-};
+type NotificationSettings = NotificationPreferences;
 
 type PickupSelection = {
   pickupId: string;
@@ -169,12 +178,15 @@ export function HomeShell() {
   const [tripsLoading, setTripsLoading] = useState(false);
   const [tripsError, setTripsError] = useState<string | null>(null);
   const [chats, setChats] = useState<MockChat[]>([]);
+  const [registeredPushToken, setRegisteredPushToken] = useState<string | null>(
+    null,
+  );
   const [notificationSettings, setNotificationSettings] =
     useState<NotificationSettings>({
       bookingUpdates: true,
       chatMessages: true,
       paymentAndClaims: true,
-  });
+    });
   const [selectedTripId, setSelectedTripId] = useState(mockTrips[0].id);
   const [selectedChatId, setSelectedChatId] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(
@@ -196,11 +208,27 @@ export function HomeShell() {
   const [pickupSelections, setPickupSelections] = useState<
     Record<string, PickupSelection>
   >({});
+  const deliveredLocalNotificationIdsRef = useRef<Set<string>>(new Set());
+  const hasHydratedNotificationInboxRef = useRef(false);
 
   const currentTab = mode === "renter" ? renterTab : hostTab;
   const unreadNotifications = notifications.filter(
     (item) => item.unread,
   ).length;
+  const shouldPreviewNotificationLocally = useCallback(
+    (notification: MockNotification) => {
+      if (notification.type === "booking") {
+        return notificationSettings.bookingUpdates;
+      }
+
+      if (notification.type === "chat") {
+        return notificationSettings.chatMessages;
+      }
+
+      return notificationSettings.paymentAndClaims;
+    },
+    [notificationSettings],
+  );
   const renterTrips = useMemo(
     () =>
       currentUser?.id
@@ -231,7 +259,7 @@ export function HomeShell() {
   const selectedChat =
     chats.find((chat) => chat.id === selectedChatId) ??
     chats[0] ??
-    mockChats[0];
+    null;
   const selectedPickup = pickupSelections[selectedTrip.id] ?? {
     pickupId: selectedTrip.pickupPointId,
     dropoffId: selectedTrip.dropoffPointId,
@@ -242,6 +270,89 @@ export function HomeShell() {
     publicListings.find((vehicle) => vehicle.id === selectedBrowseVehicleId) ??
     null;
 
+  const refreshBookings = useCallback(
+    async (showLoading = false) => {
+      if (!token) {
+        setTrips([]);
+        setPickupSelections({});
+        setTripsError(null);
+        setTripsLoading(false);
+        setChats([]);
+        setSelectedChatId("");
+        return;
+      }
+
+      if (showLoading) {
+        setTripsLoading(true);
+        setTripsError(null);
+      }
+
+      try {
+        const response = await fetchMyBookings(token);
+        const nextTrips = synchronizeTrips(
+          response.bookings.map((booking) => mapBookingToTrip(booking)),
+        );
+        const nextChats = response.bookings
+          .map((booking) => mapBookingToChat(booking, currentUser?.id ?? null))
+          .filter((chat): chat is MockChat => Boolean(chat));
+
+        setTrips(nextTrips);
+        setChats(nextChats);
+        setSelectedTripId((current) =>
+          nextTrips.some((trip) => trip.id === current)
+            ? current
+            : (nextTrips[0]?.id ?? mockTrips[0].id),
+        );
+        setSelectedChatId((current) =>
+          nextChats.some((chat) => chat.id === current)
+            ? current
+            : (nextChats[0]?.id ?? ""),
+        );
+        setPickupSelections(
+          Object.fromEntries(
+            nextTrips.map((trip) => [
+              trip.id,
+              {
+                pickupId: trip.pickupPointId,
+                dropoffId: trip.dropoffPointId,
+              },
+            ]),
+          ),
+        );
+        setTripsError(null);
+      } catch (error) {
+        if (showLoading) {
+          setTripsError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load booking history.",
+          );
+        }
+      } finally {
+        if (showLoading) {
+          setTripsLoading(false);
+        }
+      }
+    },
+    [currentUser?.id, token],
+  );
+
+  const refreshNotifications = useCallback(async () => {
+    if (!token) {
+      setNotifications([]);
+      return;
+    }
+
+    try {
+      const response = await fetchNotifications(token);
+      setNotifications(
+        response.notifications.map(mapNotificationToMockNotification),
+      );
+    } catch (_error) {
+      setNotifications([]);
+    }
+  }, [token]);
+
   useEffect(() => {
     if (!toast) {
       return;
@@ -249,6 +360,19 @@ export function HomeShell() {
     const timer = setTimeout(() => setToast(null), 2400);
     return () => clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    if (currentUser?.notificationPreferences) {
+      setNotificationSettings(currentUser.notificationPreferences);
+      return;
+    }
+
+    setNotificationSettings({
+      bookingUpdates: true,
+      chatMessages: true,
+      paymentAndClaims: true,
+    });
+  }, [currentUser?.notificationPreferences]);
 
   useEffect(() => {
     let isMounted = true;
@@ -283,10 +407,6 @@ export function HomeShell() {
 
   useEffect(() => {
     if (!token) {
-      setTrips([]);
-      setPickupSelections({});
-      setTripsError(null);
-      setTripsLoading(false);
       setHostListings([]);
       setHostListingsError(null);
       setHostListingsLoading(false);
@@ -324,96 +444,158 @@ export function HomeShell() {
   }, [token]);
 
   useEffect(() => {
-    if (!token) {
-      return;
-    }
+    void refreshBookings(true);
+  }, [refreshBookings]);
 
-    let isMounted = true;
-    setTripsLoading(true);
-    setTripsError(null);
-
-    fetchMyBookings(token)
-      .then((response) => {
-        if (!isMounted) {
-          return;
-        }
-
-        const nextTrips = synchronizeTrips(
-          response.bookings.map((booking) => mapBookingToTrip(booking)),
-        );
-        const nextChats = response.bookings.map((booking) =>
-          mapBookingToChat(booking, currentUser?.id ?? null),
-        );
-        setTrips(nextTrips);
-        setChats(nextChats);
-        setSelectedTripId((current) =>
-          nextTrips.some((trip) => trip.id === current)
-            ? current
-            : (nextTrips[0]?.id ?? mockTrips[0].id),
-        );
-        setSelectedChatId((current) =>
-          nextChats.some((chat) => chat.id === current)
-            ? current
-            : (nextChats[0]?.id ?? ""),
-        );
-        setPickupSelections(
-          Object.fromEntries(
-            nextTrips.map((trip) => [
-              trip.id,
-              {
-                pickupId: trip.pickupPointId,
-                dropoffId: trip.dropoffPointId,
-              },
-            ]),
-          ),
-        );
-      })
-      .catch((error) => {
-        if (isMounted) {
-          setTripsError(
-            error instanceof Error
-              ? error.message
-              : "Unable to load booking history.",
-          );
-        }
-      })
-      .finally(() => {
-        if (isMounted) {
-          setTripsLoading(false);
-        }
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [currentUser?.id, token]);
+  useEffect(() => {
+    void refreshNotifications();
+  }, [refreshNotifications]);
 
   useEffect(() => {
     if (!token) {
-      setNotifications([]);
+      setRegisteredPushToken(null);
+      return;
+    }
+
+    if (registeredPushToken) {
       return;
     }
 
     let isMounted = true;
 
-    fetchNotifications(token)
-      .then((response) => {
+    registerForPushNotificationsAsync()
+      .then(async (pushToken) => {
+        if (!pushToken || !isMounted) {
+          return;
+        }
+
+        await registerPushTokenOnServer(token, pushToken);
         if (isMounted) {
-          setNotifications(
-            response.notifications.map(mapNotificationToMockNotification),
-          );
+          setRegisteredPushToken(pushToken);
         }
       })
-      .catch(() => {
-        if (isMounted) {
-          setNotifications([]);
-        }
+      .catch((error) => {
+        console.error("Push registration failed:", error);
       });
 
     return () => {
       isMounted = false;
     };
+  }, [registeredPushToken, token]);
+
+  useEffect(() => {
+    deliveredLocalNotificationIdsRef.current.clear();
+    hasHydratedNotificationInboxRef.current = false;
+
+    if (!token) {
+      return;
+    }
   }, [token]);
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    if (!hasHydratedNotificationInboxRef.current) {
+      notifications.forEach((notification) => {
+        deliveredLocalNotificationIdsRef.current.add(notification.id);
+      });
+      hasHydratedNotificationInboxRef.current = true;
+      return;
+    }
+
+    const newUnreadNotifications = notifications.filter(
+      (notification) =>
+        notification.unread &&
+        !deliveredLocalNotificationIdsRef.current.has(notification.id),
+    );
+
+    if (!newUnreadNotifications.length) {
+      return;
+    }
+
+    newUnreadNotifications.forEach((notification) => {
+      deliveredLocalNotificationIdsRef.current.add(notification.id);
+    });
+
+    if (registeredPushToken) {
+      return;
+    }
+
+    newUnreadNotifications
+      .filter(shouldPreviewNotificationLocally)
+      .forEach((notification) => {
+        void scheduleLocalDemoNotificationAsync({
+          title: notification.title,
+          body: notification.body,
+          data: {
+            notificationId: notification.id,
+            type: notification.type,
+            localDemo: true,
+          },
+        }).catch((error) => {
+          console.error("Local notification preview failed:", error);
+        });
+      });
+  }, [
+    notifications,
+    registeredPushToken,
+    shouldPreviewNotificationLocally,
+    token,
+  ]);
+
+  useEffect(() => {
+    if (!token) {
+      disconnectSocket();
+      return;
+    }
+
+    const receivedSubscription =
+      Notifications.addNotificationReceivedListener(() => {
+        void refreshNotifications();
+        void refreshBookings();
+      });
+
+    const responseSubscription =
+      Notifications.addNotificationResponseReceivedListener(() => {
+        void refreshNotifications();
+        void refreshBookings();
+      });
+
+    return () => {
+      receivedSubscription.remove();
+      responseSubscription.remove();
+    };
+  }, [refreshBookings, refreshNotifications, token]);
+
+  useEffect(() => {
+    if (!token) {
+      disconnectSocket();
+      return;
+    }
+
+    const socket = createSocket(token);
+    const handleBookingsChanged = () => {
+      void refreshBookings();
+    };
+    const handleNotificationsChanged = () => {
+      void refreshNotifications();
+    };
+    const handleConnectError = (error: Error) => {
+      console.error("Socket connection failed:", error);
+    };
+
+    socket.on("bookings:changed", handleBookingsChanged);
+    socket.on("notifications:changed", handleNotificationsChanged);
+    socket.on("connect_error", handleConnectError);
+
+    return () => {
+      socket.off("bookings:changed", handleBookingsChanged);
+      socket.off("notifications:changed", handleNotificationsChanged);
+      socket.off("connect_error", handleConnectError);
+    };
+  }, [refreshBookings, refreshNotifications, token]);
 
   const openTrip = (tripId: string) => {
     setSelectedTripId(tripId);
@@ -436,8 +618,68 @@ export function HomeShell() {
     mockTrips[1];
 
   const openChat = (chatId: string) => {
+    const nextChat = chats.find((chat) => chat.id === chatId);
+    if (!nextChat) {
+      setToast("This booking chat is not available yet.");
+      return;
+    }
     setSelectedChatId(chatId);
     setOverlay("chat-thread");
+  };
+
+  const handleLogout = async () => {
+    if (token && registeredPushToken) {
+      try {
+        await unregisterPushTokenOnServer(token, registeredPushToken);
+      } catch (error) {
+        console.error("Push token cleanup failed:", error);
+      }
+    }
+
+    setRegisteredPushToken(null);
+    dispatch(signOut());
+  };
+
+  const handleNotificationSettingToggle = async (
+    key: keyof NotificationSettings,
+  ) => {
+    if (!token) {
+      setToast("Sign in again before updating push settings.");
+      return;
+    }
+
+    const nextSettings = {
+      ...notificationSettings,
+      [key]: !notificationSettings[key],
+    };
+
+    setNotificationSettings(nextSettings);
+
+    try {
+      const response = await saveNotificationPreferences(token, nextSettings);
+      setNotificationSettings(response.notificationPreferences);
+
+      if (currentUser) {
+        dispatch(
+          updateUser({
+            ...currentUser,
+            notificationPreferences: response.notificationPreferences,
+          }),
+        );
+      }
+
+      setToast("Notification preferences updated");
+    } catch (error) {
+      setNotificationSettings((current) => ({
+        ...current,
+        [key]: !nextSettings[key],
+      }));
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Unable to update notification preferences.",
+      );
+    }
   };
 
   const applyTripStatusUpdate = async (
@@ -471,10 +713,12 @@ export function HomeShell() {
         },
       }));
 
-      setChats((current) => upsertChat(current, savedChat));
-      setSelectedChatId((current) =>
-        current === getChatIdForTrip(tripId) ? savedChat.id : current,
-      );
+      if (savedChat) {
+        setChats((current) => upsertChat(current, savedChat));
+        setSelectedChatId((current) =>
+          current === getChatIdForTrip(tripId) ? savedChat.id : current,
+        );
+      }
 
       if (nextStatus === "Confirmed" && savedTrip.vehicleId) {
         const bookingDates = getBookingDates(
@@ -719,7 +963,7 @@ export function HomeShell() {
       );
       break;
     case "chat-thread":
-      body = (
+      body = selectedChat ? (
         <ChatThreadScreen
           chat={selectedChat}
           onBack={() => setOverlay(null)}
@@ -746,11 +990,30 @@ export function HomeShell() {
                 ),
               ),
             );
-            setChats((current) => upsertChat(current, nextChat));
+            if (nextChat) {
+              setChats((current) => upsertChat(current, nextChat));
+              setSelectedChatId(nextChat.id);
+            }
             setSelectedTripId(nextTrip.id);
-            setSelectedChatId(nextChat.id);
           }}
         />
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.overlayScroll}
+          showsVerticalScrollIndicator={false}>
+          <OverlayHeader title='Booking chat' onBack={() => setOverlay(null)} />
+          <View style={styles.infoCard}>
+            <Ionicons
+              name='chatbubble-ellipses-outline'
+              size={18}
+              color={palette.primary}
+            />
+            <Text style={styles.infoCardText}>
+              This conversation is not available yet. Booking chats only open
+              once a real booking thread exists in the app.
+            </Text>
+          </View>
+        </ScrollView>
       );
       break;
     case "pickup-points":
@@ -830,12 +1093,60 @@ export function HomeShell() {
               );
             }
           }}
-          onToggleSetting={(key) => {
-            setNotificationSettings((current) => ({
-              ...current,
-              [key]: !current[key],
-            }));
+          onSendTest={async () => {
+            if (!token) {
+              setToast("Sign in again before sending a test notification.");
+              return;
+            }
+
+            try {
+              if (!registeredPushToken) {
+                await scheduleLocalDemoNotificationAsync({
+                  title: "Demo notification",
+                  body: "This is a local preview of booking and chat push alerts.",
+                  data: {
+                    type: "booking",
+                    localDemo: true,
+                  },
+                });
+                setToast("Demo notification shown locally");
+                return;
+              }
+
+              const response = await sendTestNotification(token);
+              setToast(response.message ?? "Test push sent");
+            } catch (error) {
+              if (
+                error instanceof Error &&
+                error.message.includes("No push-enabled device token found")
+              ) {
+                try {
+                  await scheduleLocalDemoNotificationAsync({
+                    title: "Demo notification",
+                    body: "This is a local preview of booking and chat push alerts.",
+                    data: {
+                      type: "booking",
+                      localDemo: true,
+                    },
+                  });
+                  setToast("Demo notification shown locally");
+                  return;
+                } catch (localError) {
+                  console.error(
+                    "Local test notification fallback failed:",
+                    localError,
+                  );
+                }
+              }
+
+              setToast(
+                error instanceof Error
+                  ? error.message
+                  : "Unable to send a test push notification.",
+              );
+            }
           }}
+          onToggleSetting={handleNotificationSettingToggle}
         />
       );
       break;
@@ -863,7 +1174,9 @@ export function HomeShell() {
           onOpenLicense: () => setOverlay("license-viewer"),
           onOpenPayments: () => setOverlay("payments"),
           onOpenNotifications: () => setOverlay("notifications"),
-          onLogout: () => dispatch(signOut()),
+          onLogout: () => {
+            void handleLogout();
+          },
           onOpenTrip: openTrip,
           onOpenVehicle: openBrowseVehicle,
           onStartVehicleBooking: openBookingStart,
@@ -1021,7 +1334,9 @@ export function HomeShell() {
             setSelectedVehicleId(firstBlockedDatesListing.id);
             setOverlay("vehicle-details");
           },
-          onLogout: () => dispatch(signOut()),
+          onLogout: () => {
+            void handleLogout();
+          },
           onOpenChat: openChat,
           onOpenTrip: openTrip,
           onBackToRenter: () => setMode("renter"),
@@ -1030,11 +1345,13 @@ export function HomeShell() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView edges={["top"]} style={styles.safe}>
       <StatusBar style='light' />
       <View
         style={[
           styles.page,
+          !(mode === "renter" && renterTab === "home" && !overlay) &&
+            styles.pagePadded,
           (overlay === "browse-vehicle" || overlay === "booking-start") &&
             styles.pageFullBleedOverlay,
         ]}>
@@ -1387,6 +1704,20 @@ function MessagesScreen({
             : "Each booking gets its own moderated chat thread."
         }
       />
+
+      {chats.length === 0 ? (
+        <View style={styles.infoCard}>
+          <Ionicons
+            name='chatbubble-ellipses-outline'
+            size={18}
+            color={palette.primary}
+          />
+          <Text style={styles.infoCardText}>
+            No booking conversations yet. A message thread only appears after a
+            renter sends a real booking request or a host receives one.
+          </Text>
+        </View>
+      ) : null}
 
       {chats.map((chat) => (
         <Pressable
@@ -2697,6 +3028,9 @@ function VehicleBookingStartScreen({
       });
       const trip = mapBookingToTrip(response.booking);
       const chat = mapBookingToChat(response.booking, user.id);
+      if (!chat) {
+        throw new Error("Booking thread was created without a chat payload.");
+      }
 
       onSubmit({
         trip,
@@ -3882,12 +4216,14 @@ function NotificationsScreen({
   settings,
   onBack,
   onMarkAllRead,
+  onSendTest,
   onToggleSetting,
 }: {
   notifications: MockNotification[];
   settings: NotificationSettings;
   onBack: () => void;
   onMarkAllRead: () => void;
+  onSendTest: () => void;
   onToggleSetting: (key: keyof NotificationSettings) => void;
 }) {
   return (
@@ -3924,6 +4260,10 @@ function NotificationsScreen({
           onValueChange={() => onToggleSetting("paymentAndClaims")}
         />
       </SectionCard>
+
+      <View style={styles.overlayActionStack}>
+        <SecondaryAction label='Send test push' onPress={onSendTest} />
+      </View>
 
       <SectionLabel title='INBOX' />
       {notifications.map((item) => (
@@ -6737,34 +7077,29 @@ function mapBookingToTrip(booking: BookingRecord): MockTrip {
 function mapBookingToChat(
   booking: BookingRecord,
   currentUserId: string | null,
-): MockChat {
+) {
   const isOwnerView = currentUserId === booking.ownerId;
   const participantName = isOwnerView ? booking.renterName : booking.ownerName;
   const participantRole = isOwnerView ? "Renter" : "Owner";
-  const messages = booking.messages.length
-    ? booking.messages.map((message) => ({
-        id: message.id,
-        sender:
-          message.senderRole === "system"
-            ? ("system" as const)
-            : currentUserId &&
-                ((message.senderRole === "owner" &&
-                  booking.ownerId === currentUserId) ||
-                  (message.senderRole === "renter" &&
-                    booking.renterId === currentUserId))
-              ? ("self" as const)
-              : ("other" as const),
-        body: message.body,
-        time: formatChatMessageTime(message.createdAt),
-      }))
-    : [
-        {
-          id: `${booking.id}-system-fallback`,
-          sender: "system" as const,
-          body: `Booking thread created for ${booking.startDate} to ${booking.endDate}.`,
-          time: "Now",
-        },
-      ];
+  if (!booking.messages.length) {
+    return null;
+  }
+
+  const messages = booking.messages.map((message) => ({
+    id: message.id,
+    sender:
+      message.senderRole === "system"
+        ? ("system" as const)
+        : currentUserId &&
+            ((message.senderRole === "owner" &&
+              booking.ownerId === currentUserId) ||
+              (message.senderRole === "renter" &&
+                booking.renterId === currentUserId))
+          ? ("self" as const)
+          : ("other" as const),
+    body: message.body,
+    time: formatChatMessageTime(message.createdAt),
+  }));
   const lastMessage = messages[messages.length - 1];
 
   return {
@@ -7040,8 +7375,10 @@ const styles = StyleSheet.create({
   page: {
     flex: 1,
     backgroundColor: palette.background,
-    paddingHorizontal: spacing.screen,
     paddingTop: spacing.xs,
+  },
+  pagePadded: {
+    paddingHorizontal: spacing.screen,
   },
   pageFullBleedOverlay: {
     paddingHorizontal: 0,

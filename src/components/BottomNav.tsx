@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors, radii, spacing, typography } from "../theme/tokens";
 
@@ -82,13 +83,15 @@ type Props = {
 };
 
 export function BottomNav({ mode, currentTab, onSelectTab }: Props) {
+  const insets = useSafeAreaInsets();
   const tabs = mode === "renter" ? renterTabs : hostTabs;
   const accent = mode === "renter" ? palette.primary : palette.secondary;
   const centerFill = mode === "renter" ? palette.primaryBright : palette.secondary;
   const centerText = mode === "renter" ? palette.onPrimary : "#0A0A0A";
+  const bottomOffset = Math.max(insets.bottom - 4, 6);
 
   return (
-    <View style={styles.frame}>
+    <View style={[styles.frame, { bottom: bottomOffset }]}>
       <View style={styles.glass}>
         <View style={styles.row}>
           {tabs.map((tab, index) => {
@@ -139,8 +142,13 @@ export function BottomNav({ mode, currentTab, onSelectTab }: Props) {
 
 const styles = StyleSheet.create({
   frame: {
-    height: 92,
+    position: "absolute",
+    left: spacing.screen,
+    right: spacing.screen,
+    zIndex: 20,
+    height: 64,
     justifyContent: "flex-end",
+    overflow: "visible",
   },
   glass: {
     height: 64,

@@ -7,6 +7,16 @@ import { Provider, useSelector } from "react-redux";
 import { store, RootState } from "./src/store";
 import { AppNavigator } from "./src/AppNavigator";
 import { AuthNavigator } from "./src/AuthNavigator";
+import { Notifications } from "./src/services/pushNotifications";
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
 
 const navigationTheme = {
   ...DefaultTheme,
