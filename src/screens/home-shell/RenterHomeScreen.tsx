@@ -2,9 +2,11 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { useMemo, useState } from "react";
 import { Linking, Pressable, ScrollView, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ParishCode, VehicleListing } from "../../types/vehicle";
 import { colors } from "../../theme/tokens";
+import { BOTTOM_NAV_CONTENT_INSET } from "../../components/BottomNav";
 import {
   DiscoveryCategoryChip,
   DiscoveryVehicleCard,
@@ -50,6 +52,7 @@ export function RenterHomeScreen({
   onOpenNotifications: () => void;
   onOpenVehicle: (vehicleId: string) => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [selectedCategory, setSelectedCategory] =
     useState<HomeVehicleCategory>("all");
   const [nearbyPermissionState, setNearbyPermissionState] = useState<
@@ -175,7 +178,10 @@ export function RenterHomeScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={styles.scrollContent}
+      contentContainerStyle={[
+        styles.scrollContent,
+        { paddingBottom: BOTTOM_NAV_CONTENT_INSET + insets.bottom },
+      ]}
       showsVerticalScrollIndicator={false}>
       <View style={styles.discoveryTopRow}>
         <View style={styles.discoveryTitleWrap}>

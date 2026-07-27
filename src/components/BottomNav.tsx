@@ -1,10 +1,37 @@
 import { Ionicons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
+import { GlassView, isLiquidGlassAvailable } from "expo-glass-effect";
+import { ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { colors, radii, spacing, typography } from "../theme/tokens";
 
 const palette = colors.dark;
+export const BOTTOM_NAV_CONTENT_INSET = 70;
+
+const HAS_LIQUID_GLASS = isLiquidGlassAvailable();
+
+function NavGlassSurface({ children }: { children: ReactNode }) {
+  if (HAS_LIQUID_GLASS) {
+    return (
+      <GlassView style={styles.glass} glassEffectStyle='regular' isInteractive>
+        {children}
+      </GlassView>
+    );
+  }
+
+  return (
+    <BlurView
+      intensity={78}
+      tint='systemChromeMaterialDark'
+      blurMethod='dimezisBlurViewSdk31Plus'
+      style={styles.glass}>
+      <View style={styles.glassTint} />
+      {children}
+    </BlurView>
+  );
+}
 
 export type AppMode = "renter" | "host";
 
@@ -26,8 +53,8 @@ const renterTabs: TabConfig[] = [
   {
     key: "trips",
     label: "Trips",
-    icon: "document-text-outline",
-    iconSelected: "document-text",
+    icon: "map-outline",
+    iconSelected: "map",
   },
   {
     key: "messages",
@@ -86,56 +113,39 @@ export function BottomNav({ mode, currentTab, onSelectTab }: Props) {
   const insets = useSafeAreaInsets();
   const tabs = mode === "renter" ? renterTabs : hostTabs;
   const accent = mode === "renter" ? palette.primary : palette.secondary;
-  const centerFill = mode === "renter" ? palette.primaryBright : palette.secondary;
-  const centerText = mode === "renter" ? palette.onPrimary : "#0A0A0A";
-  const bottomOffset = Math.max(insets.bottom - 4, 6);
+  const bottomOffset = Math.max(insets.bottom - 20, 20);
 
   return (
     <View style={[styles.frame, { bottom: bottomOffset }]}>
-      <View style={styles.glass}>
-        <View style={styles.row}>
-          {tabs.map((tab, index) => {
-            if (index === 2) {
-              return <View key={tab.key} style={styles.centerSpacer} />;
-            }
-
-            const selected = currentTab === tab.key;
-            return (
-              <Pressable
-                key={tab.key}
-                onPress={() => onSelectTab(tab.key)}
-                style={styles.sideItem}
-              >
-                <Ionicons
-                  name={selected ? tab.iconSelected : tab.icon}
-                  size={20}
-                  color={selected ? accent : palette.onSurfaceVariant}
-                />
-                <Text style={[styles.sideLabel, selected && { color: accent }]}>
-                  {tab.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
+      <View style={styles.glassShadow}>
+        <NavGlassSurface>
+          <View style={styles.row}>
+            {tabs.map((tab) => {
+              const selected = currentTab === tab.key;
+              return (
+                <Pressable
+                  key={tab.key}
+                  onPress={() => onSelectTab(tab.key)}
+                  style={styles.sideItem}>
+                  <Ionicons
+                    name={selected ? tab.iconSelected : tab.icon}
+                    size={20}
+                    color={selected ? accent : palette.onSurfaceVariant}
+                  />
+                  <Text
+                    style={[
+                      styles.sideLabel,
+                      selected && styles.selectedSideLabel,
+                    ]}
+                    numberOfLines={1}>
+                    {tab.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </NavGlassSurface>
       </View>
-
-      <Pressable
-        onPress={() => onSelectTab(tabs[2].key)}
-        style={[
-          styles.centerButton,
-          {
-            backgroundColor: centerFill,
-            shadowColor: accent,
-          },
-        ]}
-      >
-        <Ionicons
-          name={currentTab === tabs[2].key ? tabs[2].iconSelected : tabs[2].icon}
-          size={24}
-          color={centerText}
-        />
-      </Pressable>
     </View>
   );
 }
@@ -150,23 +160,35 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     overflow: "visible",
   },
-  glass: {
+  glassShadow: {
     height: 64,
     borderRadius: radii.navPill,
-    backgroundColor: palette.navGlassBackground,
-    borderWidth: 1,
-    borderColor: palette.navGlassTopEdge,
     shadowColor: palette.shadow,
     shadowOpacity: 1,
     shadowOffset: { width: 0, height: 8 },
     shadowRadius: 18,
     elevation: 10,
   },
+  glass: {
+    height: 64,
+    borderRadius: radii.navPill,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  glassTint: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(10,10,12,0.32)",
+  },
   row: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    gap: spacing.xxs,
     paddingHorizontal: spacing.sm,
   },
   sideItem: {
@@ -175,27 +197,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 4,
   },
-  centerSpacer: {
-    flex: 1,
-  },
   sideLabel: {
     color: palette.onSurfaceVariant,
     ...typography.labelSmall,
   },
-  centerButton: {
-    position: "absolute",
-    alignSelf: "center",
-    bottom: 36,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.06)",
-    shadowOpacity: 0.35,
-    shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 16,
-    elevation: 12,
+  selectedSideLabel: {
+    color: palette.onSurface,
   },
 });

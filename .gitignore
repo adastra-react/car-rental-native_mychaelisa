@@ -8,6 +8,7 @@ node_modules/
 dist/
 web-build/
 expo-env.d.ts
+Expo-Go-*.tar.app/
 
 # Native
 .kotlin/

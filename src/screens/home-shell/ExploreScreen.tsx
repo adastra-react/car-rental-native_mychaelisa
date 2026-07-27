@@ -13,10 +13,12 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { MockPickupPoint } from "../../data/mockAppData";
 import { VehicleListing } from "../../types/vehicle";
 import { colors } from "../../theme/tokens";
+import { BOTTOM_NAV_CONTENT_INSET } from "../../components/BottomNav";
 import {
   FilterChip,
   PageHeader,
@@ -77,6 +79,7 @@ export function ExploreScreen({
   onStartVehicleBooking: (vehicleId: string) => void;
   onOpenPickupPoints: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const [search, setSearch] = useState("");
   const [listMode, setListMode] = useState<"list" | "map">("list");
   const [selectedMapArea, setSelectedMapArea] = useState<string | null>(null);
@@ -214,7 +217,10 @@ export function ExploreScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={styles.scrollContent}
+      contentContainerStyle={[
+        styles.scrollContent,
+        { paddingBottom: BOTTOM_NAV_CONTENT_INSET + insets.bottom },
+      ]}
       showsVerticalScrollIndicator={false}>
       <PageHeader
         title='Explore'
