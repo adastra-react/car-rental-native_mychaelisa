@@ -7,11 +7,16 @@ export type TripStatus =
 
 export type MockTrip = {
   id: string;
+  vehicleId?: string;
+  ownerId?: string;
+  renterId?: string;
   title: string;
   location: string;
   status: TripStatus;
   startDate: string;
   endDate: string;
+  startDateIso?: string;
+  endDateIso?: string;
   totalDays: number;
   totalAmount: number;
   ownerPayout: number;
@@ -34,6 +39,7 @@ export type MockChatMessage = {
 
 export type MockChat = {
   id: string;
+  bookingId: string;
   participantName: string;
   participantRole: string;
   vehicle: string;
@@ -89,11 +95,14 @@ export type MockListing = {
 export const mockTrips: MockTrip[] = [
   {
     id: "trip-axio-weekend",
+    vehicleId: "vehicle-axio-weekend",
     title: "2021 Toyota Axio",
     location: "Kingston",
     status: "Active",
     startDate: "Jul 23",
     endDate: "Jul 27",
+    startDateIso: "2026-07-23",
+    endDateIso: "2026-07-27",
     totalDays: 4,
     totalAmount: 26400,
     ownerPayout: 21120,
@@ -106,11 +115,14 @@ export const mockTrips: MockTrip[] = [
   },
   {
     id: "trip-vitz-request",
+    vehicleId: "vehicle-vitz-request",
     title: "2019 Toyota Vitz",
     location: "Montego Bay",
     status: "Pending",
     startDate: "Jul 29",
     endDate: "Aug 2",
+    startDateIso: "2026-07-29",
+    endDateIso: "2026-08-02",
     totalDays: 4,
     totalAmount: 22800,
     ownerPayout: 18240,
@@ -123,11 +135,14 @@ export const mockTrips: MockTrip[] = [
   },
   {
     id: "trip-hiace-past",
+    vehicleId: "vehicle-hiace-past",
     title: "2020 Toyota Hiace",
     location: "Ocho Rios",
     status: "Completed",
     startDate: "Jul 10",
     endDate: "Jul 13",
+    startDateIso: "2026-07-10",
+    endDateIso: "2026-07-13",
     totalDays: 3,
     totalAmount: 42000,
     ownerPayout: 33600,
@@ -145,6 +160,7 @@ export const mockTrips: MockTrip[] = [
 export const mockChats: MockChat[] = [
   {
     id: "chat-axio",
+    bookingId: "trip-axio-weekend",
     participantName: "Ashley Bennett",
     participantRole: "Owner",
     vehicle: "2021 Toyota Axio",
@@ -175,6 +191,7 @@ export const mockChats: MockChat[] = [
   },
   {
     id: "chat-vitz",
+    bookingId: "trip-vitz-request",
     participantName: "Simone Grant",
     participantRole: "Owner",
     vehicle: "2019 Toyota Vitz",

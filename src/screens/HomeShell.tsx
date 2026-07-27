@@ -2,11 +2,9 @@ import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker, {
   DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
-import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import Svg, { Circle, G, Path, Text as SvgText } from "react-native-svg";
 import {
   ActivityIndicator,
   Alert,
@@ -27,6 +25,16 @@ import {
 
 import { AppMode, BottomNav } from "../components/BottomNav";
 import {
+  createBooking,
+  fetchMyBookings,
+  sendBookingMessage,
+  updateBookingStatus,
+} from "../services/bookings";
+import {
+  fetchNotifications,
+  markAllNotificationsRead,
+} from "../services/notifications";
+import {
   MockChat,
   MockListing,
   MockNotification,
@@ -34,9 +42,7 @@ import {
   MockPayout,
   MockTrip,
   mockChats,
-  mockHostTasks,
   mockListings,
-  mockNotifications,
   mockPayouts,
   mockPickupPoints,
   mockTrips,
@@ -55,6 +61,8 @@ import {
 import { signOut } from "../store/authSlice";
 import { AppDispatch, RootState } from "../store";
 import { AuthUser, LicenseVerificationStatus } from "../types/auth";
+import { BookingRecord } from "../types/booking";
+import { AppNotificationRecord } from "../types/notification";
 import {
   ParishCode,
   VehicleCategory,
@@ -64,24 +72,34 @@ import {
 import { colors, radii, spacing, typography } from "../theme/tokens";
 import { isProfileComplete } from "../utils/profile";
 import { pickUploadAssets } from "../utils/uploadPicker";
+import { ExploreScreen } from "./home-shell/ExploreScreen";
+import { RenterHomeScreen } from "./home-shell/RenterHomeScreen";
+import {
+  PageHeader,
+  PrimaryAction,
+  SecondaryAction,
+  StatusChip,
+} from "./home-shell/discoveryComponents";
+import {
+  getBrowseListingAccent,
+  getHomeVehicleCategory,
+  getListingCategoryLabel,
+  getListingRating,
+  getListingRatingCount,
+  getListingTitle,
+  getListingYear,
+} from "./home-shell/discoveryHelpers";
+import {
+  getListingParish,
+  getParishCodeFromLabel,
+  getParishLabelFromCode,
+  jamaicaParishOptions,
+} from "./home-shell/location";
 
 const palette = colors.dark;
 
 type RenterTab = "home" | "explore" | "trips" | "messages" | "profile";
 type HostTab = "dashboard" | "listings" | "calendar" | "messages" | "profile";
-type HomeVehicleCategory =
-  | "all"
-  | "nearby"
-  | "coupes"
-  | "sedans"
-  | "suvs"
-  | "vans"
-  | "trucks"
-  | "buses";
-type Coordinates = {
-  latitude: number;
-  longitude: number;
-};
 type OverlayScreen =
   | "personal-information"
   | "license-viewer"
@@ -132,134 +150,7 @@ const vehicleCategoryOptions = [
   "Truck",
   "Bus",
 ] as const;
-const jamaicaParishOptions = [
-  "Kingston",
-  "St. Andrew",
-  "St. Thomas",
-  "Portland",
-  "St. Mary",
-  "St. Ann",
-  "Trelawny",
-  "St. James",
-  "Hanover",
-  "Westmoreland",
-  "St. Elizabeth",
-  "Manchester",
-  "Clarendon",
-  "St. Catherine",
-] as const;
-const TODAY_ISO = "2026-07-25";
-const NEARBY_LISTINGS_RADIUS_KM = 30;
-const jamaicaParishCatalog: Array<{
-  code: ParishCode;
-  label: (typeof jamaicaParishOptions)[number];
-  coordinates: Coordinates;
-  aliases: string[];
-}> = [
-  {
-    code: "KIN",
-    label: "Kingston",
-    coordinates: { latitude: 17.9712, longitude: -76.7936 },
-    aliases: ["kingston", "half way tree", "half-way tree", "hwt"],
-  },
-  {
-    code: "STA",
-    label: "St. Andrew",
-    coordinates: { latitude: 18.0179, longitude: -76.7992 },
-    aliases: ["st andrew", "st. andrew", "new kingston", "constant spring"],
-  },
-  {
-    code: "STT",
-    label: "St. Thomas",
-    coordinates: { latitude: 17.9972, longitude: -76.4528 },
-    aliases: ["st thomas", "st. thomas"],
-  },
-  {
-    code: "POR",
-    label: "Portland",
-    coordinates: { latitude: 18.1769, longitude: -76.4509 },
-    aliases: ["portland"],
-  },
-  {
-    code: "SMY",
-    label: "St. Mary",
-    coordinates: { latitude: 18.3093, longitude: -76.9643 },
-    aliases: ["st mary", "st. mary"],
-  },
-  {
-    code: "SAN",
-    label: "St. Ann",
-    coordinates: { latitude: 18.4038, longitude: -77.1027 },
-    aliases: ["st ann", "st. ann", "ocho rios", "ochi", "island village"],
-  },
-  {
-    code: "TRL",
-    label: "Trelawny",
-    coordinates: { latitude: 18.3526, longitude: -77.6078 },
-    aliases: ["trelawny"],
-  },
-  {
-    code: "SJM",
-    label: "St. James",
-    coordinates: { latitude: 18.4762, longitude: -77.8939 },
-    aliases: [
-      "st james",
-      "st. james",
-      "montego bay",
-      "mobay",
-      "mo bay",
-      "mbj",
-      "donald sangster airport",
-      "sangster",
-      "fairview shopping centre",
-      "west village",
-    ],
-  },
-  {
-    code: "HAN",
-    label: "Hanover",
-    coordinates: { latitude: 18.4098, longitude: -78.1332 },
-    aliases: ["hanover"],
-  },
-  {
-    code: "WES",
-    label: "Westmoreland",
-    coordinates: { latitude: 18.2184, longitude: -78.1336 },
-    aliases: ["westmoreland", "negril"],
-  },
-  {
-    code: "SEL",
-    label: "St. Elizabeth",
-    coordinates: { latitude: 18.0521, longitude: -77.849 },
-    aliases: ["st elizabeth", "st. elizabeth"],
-  },
-  {
-    code: "MAN",
-    label: "Manchester",
-    coordinates: { latitude: 18.0425, longitude: -77.5079 },
-    aliases: ["manchester"],
-  },
-  {
-    code: "CLA",
-    label: "Clarendon",
-    coordinates: { latitude: 17.9659, longitude: -77.2405 },
-    aliases: ["clarendon"],
-  },
-  {
-    code: "SCA",
-    label: "St. Catherine",
-    coordinates: { latitude: 17.9986, longitude: -76.9571 },
-    aliases: ["st catherine", "st. catherine", "portmore"],
-  },
-];
-const MAP_VIEWBOX = {
-  x: 24,
-  y: 8,
-  width: 952,
-  height: 376,
-};
-const JAMAICA_OUTLINE_PATH =
-  "M923 242.5l2.9 7 3.4 8 6.1 10.5 7.8 8.3 11.3 8.5-4.3 3.5-21.5 5.5-15.1 8.3-8.7 2.5-7.4-1.9 2.9-2.1 1.2-1.5 1.6-5.3-7.5 2.7-6.7 10-7.2 2.2-6.5-1.9-7.5-3.4-7.6-2-12.5 4.7-32.7 2.8-23-3.5-3.4.1-3.1.6-3.4-.4-4.3-3-1.9-3.9-.8-5.1-1.3-4.3-3.2-1.9-3.4-1-2.2-2.5-1.9-2.9-2.6-2.3-12.5-3-3.1-1.7-6.4-2.6-8.6.5-15.1 3.6-6.4.8-21.7-.8 0-3 45.7-2.7-2.9-2.8-2.1-2-5.5-1.3-12.5-.1-8.5.1-8.7-5.1-7.4-4.9-5.5-2.6-1.3 4.5-1.9 4.7-5.2 5.8-1.6 3.4-5.4-.7-1.6 3.2-1.7 10-7.4 26.4-5.5 7.8-6.7 4.3-5.5 0-3.6-1.6-3.3-2.3-4.6-1.8-23 0 0-3.2 8.8-3-4.5-4-5.6-7.5-4.4-3.4-5-2-12-1.3-10.9 3.8-9.3 5.5-6.9 13.7-1.6 3.9 3.2 12.1-3.1 1.2-5.2 3.3-3.1 1.2 1.1 2.3.7 4.5 1 2.7-4.4-2-4.5-.2-4.3 1.5-4 3.4 7.3 4.5 7.7 1.7 8.1-.7 8.3-2.5 4.3 16.4-1.3 7.5-10.2 3.2-8.6-.4-7.8-1.8-7.7-3.7-36.1-32.4-7.4-9.4-31.1-18.1-9.2-3.4-9.7-1.3-7.7 3.2-8.8 5.9-8.8.8-18.1-5.2-17.9-3.1-56.3 3.2-2.8-.5-8.7-5.9-14.6-7.3-3.7-2.8-1.8-3.4-4.3-11.2-.9-3.5-1.6-2.8-7.4-2.6-2.3-1.9-.6-9.2.7-11-2.6-9.3-10.6-3.9-28.8-.2-6.6-2.5-9.9-22.9-3.2-4.7-3.6-2.5-4.2-2.1-3.3-.9-2.5-2.3-2-5.3-2.6-10.3-7.8-15.9-10.3-5.8-30.6.7-18.7-3.1-6.9-.1-3.9 3.6-3.2 1.8-2.8-.6-10.2-4.2-1-.6-5.9-1-12.8-4.1-7.1-.9-7.3-1.8-7.1-4.7-5.2-6.8-1.8-7.6 2.3-3.7 6.1-4.3 2.9-3.7 1.2-5.7-.6-13.2.8-3.8 3.2-5.2.4-3.3 1.4-1.7 6.5-.5 4-2.7 3.3-5.1 4.3-3.5 7 2.3 4.3-12.4 12.7-11.8 14.9-4.9 10.6 8.2 6.2-7.3 6.6-.2 7.7 2.9 9.5 1.8 26.9-3.3 9 .1 4.5 1.6 3.2 1.2 4.6 1.2 4.7-.8 4.2-3 .4-2.8-.1-3.4 2.6-4.5 9.4-12.1 4.3-4 7.3-3.4 16.8-2.7 19.1.7 33.5 7.3 29.5 6.5 40.4.8 17.9 4.4 28.8 2.1 10.9 2.7 8.5 5.2 13.2-3.4 21.3 0 21.9 2.5 15.1 3.9 1.9 1.9 1.5 5.5 2 1.8 2.5 0 2.2-1 1.3-1.4-.3-.8 18.6 3.2 2.3 1.4 7 6.2 2.2 1.4 13.5.5 14.3-2.4 7.6-1.4 5 1.3 8.7 4.1 4.9.9 24.6-1.1 4.8-2.5 6.8-.8 5.5.4 5 .9 3 3.8-1.3 4.6 0 5.9 4.6 4.3 14.8 9.3 13.1 7.6 2.1 4.3 3.9 11.5 2.5 3.8 3.9 2.4 7.6 2.1 21.5 1.7 7.2 1.6 6.1 3.2 7.9 8.1 6.1 3.9 7 2.2 13.8-.9 7.3 5.2 2.3.6 2.1 2 2.5 1.8 3.4.8 31.3 0 2.1 1.3 3.3 6.3 1.5 1.9 30.6 5.8 15.9 5.7 2 9.1 11.8 11.4 9.2 13.1 13.3 29.3z";
+const TODAY_ISO = getTodayIso();
 
 export function HomeShell() {
   const dispatch = useDispatch<AppDispatch>();
@@ -273,18 +164,19 @@ export function HomeShell() {
   const [savedPaymentMethods, setSavedPaymentMethods] = useState<
     SavedPaymentMethod[]
   >([]);
-  const [notifications, setNotifications] =
-    useState<MockNotification[]>(mockNotifications);
-  const [trips, setTrips] = useState<MockTrip[]>(mockTrips);
-  const [chats, setChats] = useState<MockChat[]>(mockChats);
+  const [notifications, setNotifications] = useState<MockNotification[]>([]);
+  const [trips, setTrips] = useState<MockTrip[]>([]);
+  const [tripsLoading, setTripsLoading] = useState(false);
+  const [tripsError, setTripsError] = useState<string | null>(null);
+  const [chats, setChats] = useState<MockChat[]>([]);
   const [notificationSettings, setNotificationSettings] =
     useState<NotificationSettings>({
       bookingUpdates: true,
       chatMessages: true,
       paymentAndClaims: true,
-    });
+  });
   const [selectedTripId, setSelectedTripId] = useState(mockTrips[0].id);
-  const [selectedChatId, setSelectedChatId] = useState(mockChats[0].id);
+  const [selectedChatId, setSelectedChatId] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(
     null,
   );
@@ -303,22 +195,26 @@ export function HomeShell() {
   );
   const [pickupSelections, setPickupSelections] = useState<
     Record<string, PickupSelection>
-  >(() =>
-    Object.fromEntries(
-      mockTrips.map((trip) => [
-        trip.id,
-        {
-          pickupId: trip.pickupPointId,
-          dropoffId: trip.dropoffPointId,
-        },
-      ]),
-    ),
-  );
+  >({});
 
   const currentTab = mode === "renter" ? renterTab : hostTab;
   const unreadNotifications = notifications.filter(
     (item) => item.unread,
   ).length;
+  const renterTrips = useMemo(
+    () =>
+      currentUser?.id
+        ? trips.filter((trip) => trip.renterId === currentUser.id)
+        : [],
+    [currentUser?.id, trips],
+  );
+  const hostTrips = useMemo(
+    () =>
+      currentUser?.id
+        ? trips.filter((trip) => trip.ownerId === currentUser.id)
+        : [],
+    [currentUser?.id, trips],
+  );
   const hasCompletedProfile = useMemo(
     () => isProfileComplete(currentUser),
     [currentUser],
@@ -328,6 +224,8 @@ export function HomeShell() {
   }, [currentUser]);
   const selectedTrip =
     trips.find((trip) => trip.id === selectedTripId) ??
+    renterTrips[0] ??
+    hostTrips[0] ??
     trips[0] ??
     mockTrips[0];
   const selectedChat =
@@ -385,6 +283,10 @@ export function HomeShell() {
 
   useEffect(() => {
     if (!token) {
+      setTrips([]);
+      setPickupSelections({});
+      setTripsError(null);
+      setTripsLoading(false);
       setHostListings([]);
       setHostListingsError(null);
       setHostListingsLoading(false);
@@ -421,6 +323,98 @@ export function HomeShell() {
     };
   }, [token]);
 
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    let isMounted = true;
+    setTripsLoading(true);
+    setTripsError(null);
+
+    fetchMyBookings(token)
+      .then((response) => {
+        if (!isMounted) {
+          return;
+        }
+
+        const nextTrips = synchronizeTrips(
+          response.bookings.map((booking) => mapBookingToTrip(booking)),
+        );
+        const nextChats = response.bookings.map((booking) =>
+          mapBookingToChat(booking, currentUser?.id ?? null),
+        );
+        setTrips(nextTrips);
+        setChats(nextChats);
+        setSelectedTripId((current) =>
+          nextTrips.some((trip) => trip.id === current)
+            ? current
+            : (nextTrips[0]?.id ?? mockTrips[0].id),
+        );
+        setSelectedChatId((current) =>
+          nextChats.some((chat) => chat.id === current)
+            ? current
+            : (nextChats[0]?.id ?? ""),
+        );
+        setPickupSelections(
+          Object.fromEntries(
+            nextTrips.map((trip) => [
+              trip.id,
+              {
+                pickupId: trip.pickupPointId,
+                dropoffId: trip.dropoffPointId,
+              },
+            ]),
+          ),
+        );
+      })
+      .catch((error) => {
+        if (isMounted) {
+          setTripsError(
+            error instanceof Error
+              ? error.message
+              : "Unable to load booking history.",
+          );
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setTripsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [currentUser?.id, token]);
+
+  useEffect(() => {
+    if (!token) {
+      setNotifications([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    fetchNotifications(token)
+      .then((response) => {
+        if (isMounted) {
+          setNotifications(
+            response.notifications.map(mapNotificationToMockNotification),
+          );
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setNotifications([]);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [token]);
+
   const openTrip = (tripId: string) => {
     setSelectedTripId(tripId);
     setOverlay("booking-detail");
@@ -436,9 +430,83 @@ export function HomeShell() {
     setOverlay("booking-start");
   };
 
+  const pendingTripForReview =
+    hostTrips.find((trip) => trip.status === "Pending") ??
+    hostTrips[0] ??
+    mockTrips[1];
+
   const openChat = (chatId: string) => {
     setSelectedChatId(chatId);
     setOverlay("chat-thread");
+  };
+
+  const applyTripStatusUpdate = async (
+    tripId: string,
+    nextStatus: Extract<MockTrip["status"], "Confirmed" | "Cancelled">,
+    note: string,
+  ) => {
+    if (!token) {
+      setToast("Sign in again before reviewing booking requests.");
+      return false;
+    }
+
+    try {
+      const response = await updateBookingStatus(token, tripId, nextStatus);
+      const savedTrip = {
+        ...mapBookingToTrip(response.booking),
+        notes: `${response.booking.notes} ${note}`.trim(),
+      };
+      const savedChat = mapBookingToChat(response.booking, currentUser?.id ?? null);
+
+      setTrips((current) =>
+        synchronizeTrips(
+          current.map((trip) => (trip.id === tripId ? savedTrip : trip)),
+        ),
+      );
+      setPickupSelections((current) => ({
+        ...current,
+        [savedTrip.id]: {
+          pickupId: savedTrip.pickupPointId,
+          dropoffId: savedTrip.dropoffPointId,
+        },
+      }));
+
+      setChats((current) => upsertChat(current, savedChat));
+      setSelectedChatId((current) =>
+        current === getChatIdForTrip(tripId) ? savedChat.id : current,
+      );
+
+      if (nextStatus === "Confirmed" && savedTrip.vehicleId) {
+        const bookingDates = getBookingDates(
+          savedTrip.startDateIso ?? "",
+          savedTrip.endDateIso ?? "",
+        );
+
+        if (bookingDates.length) {
+          const updateBlockedDates = (listing: VehicleListing) =>
+            listing.id === savedTrip.vehicleId
+              ? {
+                  ...listing,
+                  blockedDates: Array.from(
+                    new Set([...listing.blockedDates, ...bookingDates]),
+                  ).sort(),
+                }
+              : listing;
+
+          setHostListings((current) => current.map(updateBlockedDates));
+          setPublicListings((current) => current.map(updateBlockedDates));
+        }
+      }
+
+      return true;
+    } catch (error) {
+      setToast(
+        error instanceof Error
+          ? error.message
+          : "Unable to update the booking right now.",
+      );
+      return false;
+    }
   };
 
   let body: React.ReactNode;
@@ -492,31 +560,31 @@ export function HomeShell() {
     case "booking-start":
       body = selectedBrowseVehicle ? (
         <VehicleBookingStartScreen
+          token={token}
           vehicle={selectedBrowseVehicle}
+          existingTrips={trips}
           user={currentUser}
           pickupPoints={mockPickupPoints}
           onBack={() => setOverlay("browse-vehicle")}
           onSubmit={(booking) => {
-            setTrips((current) => [booking.trip, ...current]);
-            setChats((current) => [booking.chat, ...current]);
+            setTrips((current) => synchronizeTrips([booking.trip, ...current]));
+            setChats((current) => upsertChat(current, booking.chat));
             setPickupSelections((current) => ({
               ...current,
               [booking.trip.id]: booking.selection,
             }));
-            setNotifications((current) => [
-              {
-                id: `notif-booking-${booking.trip.id}`,
-                title: "Booking request sent",
-                body: `Your request for ${booking.trip.title} was submitted for ${booking.trip.startDate} to ${booking.trip.endDate}.`,
-                receivedAt: "Just now",
-                type: "booking",
-                unread: true,
-              },
-              ...current,
-            ]);
+            if (token) {
+              void fetchNotifications(token)
+                .then((response) => {
+                  setNotifications(
+                    response.notifications.map(mapNotificationToMockNotification),
+                  );
+                })
+                .catch(() => undefined);
+            }
             setSelectedTripId(booking.trip.id);
             setSelectedChatId(booking.chat.id);
-            setToast("Booking request started");
+            setToast("Booking request sent");
             setOverlay("booking-detail");
           }}
         />
@@ -605,11 +673,10 @@ export function HomeShell() {
           onBack={() => setOverlay(null)}
           onOpenPickupPoints={() => setOverlay("pickup-points")}
           onOpenChat={() => {
-            const firstChat = chats.find((chat) =>
-              chat.vehicle.includes(selectedTrip.title.split(" ").slice(-1)[0]),
-            );
-            if (firstChat) {
-              setSelectedChatId(firstChat.id);
+            const tripChatId = getChatIdForTrip(selectedTrip.id);
+            const tripChat = chats.find((chat) => chat.id === tripChatId);
+            if (tripChat) {
+              setSelectedChatId(tripChat.id);
               setOverlay("chat-thread");
               return;
             }
@@ -623,20 +690,30 @@ export function HomeShell() {
     case "booking-request":
       body = (
         <BookingRequestScreen
-          trip={
-            trips.find((trip) => trip.status === "Pending") ??
-            trips[1] ??
-            mockTrips[1]
-          }
+          trip={pendingTripForReview}
           pickupPoints={mockPickupPoints}
           onBack={() => setOverlay(null)}
-          onApprove={() => {
-            setToast("Booking request approved");
-            setOverlay(null);
+          onApprove={async () => {
+            const success = await applyTripStatusUpdate(
+              pendingTripForReview.id,
+              "Confirmed",
+              "Owner approved the request in host mode.",
+            );
+            if (success) {
+              setToast("Booking request approved");
+              setOverlay(null);
+            }
           }}
-          onDecline={() => {
-            setToast("Booking request declined");
-            setOverlay(null);
+          onDecline={async () => {
+            const success = await applyTripStatusUpdate(
+              pendingTripForReview.id,
+              "Cancelled",
+              "Owner declined the request in host mode.",
+            );
+            if (success) {
+              setToast("Booking request declined");
+              setOverlay(null);
+            }
           }}
         />
       );
@@ -646,7 +723,33 @@ export function HomeShell() {
         <ChatThreadScreen
           chat={selectedChat}
           onBack={() => setOverlay(null)}
-          onSend={() => setToast("Message queued locally")}
+          onSend={async (messageBody) => {
+            if (!token) {
+              throw new Error("Sign in again before sending a message.");
+            }
+
+            const response = await sendBookingMessage(
+              token,
+              selectedChat.bookingId,
+              messageBody,
+            );
+            const nextTrip = mapBookingToTrip(response.booking);
+            const nextChat = mapBookingToChat(
+              response.booking,
+              currentUser?.id ?? null,
+            );
+
+            setTrips((current) =>
+              synchronizeTrips(
+                current.map((trip) =>
+                  trip.id === nextTrip.id ? nextTrip : trip,
+                ),
+              ),
+            );
+            setChats((current) => upsertChat(current, nextChat));
+            setSelectedTripId(nextTrip.id);
+            setSelectedChatId(nextChat.id);
+          }}
         />
       );
       break;
@@ -707,11 +810,25 @@ export function HomeShell() {
           notifications={notifications}
           settings={notificationSettings}
           onBack={() => setOverlay(null)}
-          onMarkAllRead={() => {
-            setNotifications((items) =>
-              items.map((item) => ({ ...item, unread: false })),
-            );
-            setToast("Notifications marked as read");
+          onMarkAllRead={async () => {
+            if (!token) {
+              setToast("Sign in again before refreshing notifications.");
+              return;
+            }
+
+            try {
+              const response = await markAllNotificationsRead(token);
+              setNotifications(
+                response.notifications.map(mapNotificationToMockNotification),
+              );
+              setToast("Notifications marked as read");
+            } catch (error) {
+              setToast(
+                error instanceof Error
+                  ? error.message
+                  : "Unable to update notification status.",
+              );
+            }
           }}
           onToggleSetting={(key) => {
             setNotificationSettings((current) => ({
@@ -737,7 +854,7 @@ export function HomeShell() {
           listings: publicListings,
           listingsLoading: publicListingsLoading,
           listingsError: publicListingsError,
-          trips,
+          trips: renterTrips,
           chats,
           onSelectProfile: () => setRenterTab("profile"),
           onSelectTrips: () => setRenterTab("trips"),
@@ -758,10 +875,30 @@ export function HomeShell() {
           onOpenHostMode: () => setMode("host"),
         });
       } else {
+        const firstHostPendingTrip =
+          hostTrips.find((trip) => trip.status === "Pending") ?? null;
+        const firstHostActiveTrip =
+          hostTrips.find(
+            (trip) => trip.status === "Confirmed" || trip.status === "Active",
+          ) ?? null;
+        const firstHostClaimTrip =
+          hostTrips.find((trip) => trip.status === "Completed") ??
+          firstHostActiveTrip ??
+          hostTrips[0] ??
+          null;
+        const firstDraftHostListing =
+          hostListings.find((listing) => listing.status === "draft") ?? null;
+        const firstBlockedDatesListing =
+          hostListings.find((listing) => listing.blockedDates.length > 0) ??
+          hostListings[0] ??
+          null;
+
         body = renderHostTab({
           tab: hostTab,
           unreadNotifications,
           user: currentUser,
+          trips: hostTrips,
+          chats,
           listings: hostListings,
           listingsLoading: hostListingsLoading,
           listingsError: hostListingsError,
@@ -834,12 +971,59 @@ export function HomeShell() {
               );
             }
           },
-          onOpenBookingRequest: () => setOverlay("booking-request"),
+          onOpenBookingRequest: () => {
+            if (!firstHostPendingTrip) {
+              setToast("No pending booking requests right now");
+              return;
+            }
+            setSelectedTripId(firstHostPendingTrip.id);
+            setOverlay("booking-request");
+          },
+          onOpenDamageClaim: () => {
+            if (!firstHostClaimTrip) {
+              setToast("No booking is ready for a damage claim yet");
+              return;
+            }
+            setSelectedTripId(firstHostClaimTrip.id);
+            setOverlay("damage-report");
+          },
           onOpenPayouts: () => setOverlay("payouts"),
           onOpenNotifications: () => setOverlay("notifications"),
           onOpenAdminPreview: () => setOverlay("admin-preview"),
+          onOpenActiveBooking: () => {
+            if (!firstHostActiveTrip) {
+              setToast("No active host bookings right now");
+              return;
+            }
+            openTrip(firstHostActiveTrip.id);
+          },
+          onOpenDraftListing: () => {
+            if (firstDraftHostListing) {
+              setSelectedVehicleId(firstDraftHostListing.id);
+              setOverlay("vehicle-details");
+              return;
+            }
+
+            if (hostListings.length) {
+              setSelectedVehicleId(hostListings[0].id);
+              setOverlay("vehicle-details");
+              return;
+            }
+
+            setSelectedVehicleId(null);
+            setOverlay("vehicle-details");
+          },
+          onOpenBlockedDates: () => {
+            if (!firstBlockedDatesListing) {
+              setToast("Create a listing first to manage blocked dates");
+              return;
+            }
+            setSelectedVehicleId(firstBlockedDatesListing.id);
+            setOverlay("vehicle-details");
+          },
           onLogout: () => dispatch(signOut()),
           onOpenChat: openChat,
+          onOpenTrip: openTrip,
           onBackToRenter: () => setMode("renter"),
         });
       }
@@ -953,11 +1137,9 @@ function renderRenterTab({
           listings={listings}
           listingsLoading={listingsLoading}
           listingsError={listingsError}
-          onSelectProfile={onSelectProfile}
           onSelectTrips={onSelectTrips}
           onSelectExplore={onSelectExplore}
           onOpenNotifications={onOpenNotifications}
-          onOpenTrip={() => onOpenTrip(trips[0]?.id ?? mockTrips[0].id)}
           onOpenVehicle={onOpenVehicle}
         />
       );
@@ -967,6 +1149,7 @@ function renderRenterTab({
           listings={listings}
           listingsLoading={listingsLoading}
           listingsError={listingsError}
+          pickupPoints={mockPickupPoints}
           onOpenVehicle={onOpenVehicle}
           onStartVehicleBooking={onStartVehicleBooking}
           onOpenPickupPoints={() =>
@@ -979,7 +1162,7 @@ function renderRenterTab({
         <TripsScreen
           trips={trips}
           onOpenTrip={onOpenTrip}
-          onOpenChat={() => onOpenChat(chats[0]?.id ?? mockChats[0].id)}
+          onOpenChat={onOpenChat}
         />
       );
     case "messages":
@@ -1013,6 +1196,8 @@ function renderHostTab({
   tab,
   unreadNotifications,
   user,
+  trips,
+  chats,
   listings,
   listingsLoading,
   listingsError,
@@ -1021,16 +1206,23 @@ function renderHostTab({
   onCreateVehicle,
   onToggleVehicleStatus,
   onOpenBookingRequest,
+  onOpenDamageClaim,
   onOpenPayouts,
   onOpenNotifications,
   onOpenAdminPreview,
+  onOpenActiveBooking,
+  onOpenDraftListing,
+  onOpenBlockedDates,
   onLogout,
   onOpenChat,
+  onOpenTrip,
   onBackToRenter,
 }: {
   tab: HostTab;
   unreadNotifications: number;
   user: AuthUser | null;
+  trips: MockTrip[];
+  chats: MockChat[];
   listings: VehicleListing[];
   listingsLoading: boolean;
   listingsError: string | null;
@@ -1042,24 +1234,35 @@ function renderHostTab({
     status: VehicleListing["status"],
   ) => void;
   onOpenBookingRequest: () => void;
+  onOpenDamageClaim: () => void;
   onOpenPayouts: () => void;
   onOpenNotifications: () => void;
   onOpenAdminPreview: () => void;
+  onOpenActiveBooking: () => void;
+  onOpenDraftListing: () => void;
+  onOpenBlockedDates: () => void;
   onLogout: () => void;
   onOpenChat: (chatId: string) => void;
+  onOpenTrip: (tripId: string) => void;
   onBackToRenter: () => void;
 }) {
   switch (tab) {
     case "dashboard":
       return (
         <HostDashboardScreen
+          trips={trips}
           listings={listings}
           listingsLoading={listingsLoading}
           listingsError={listingsError}
-          onOpenVehicleDetails={onCreateVehicle}
+          onOpenVehicleDetails={onOpenDraftListing}
           onOpenBookingRequest={onOpenBookingRequest}
+          onOpenDamageClaim={onOpenDamageClaim}
           onOpenPayouts={onOpenPayouts}
           onOpenAdminPreview={onOpenAdminPreview}
+          onOpenActiveBooking={onOpenActiveBooking}
+          onOpenDraftListing={onOpenDraftListing}
+          onOpenBlockedDates={onOpenBlockedDates}
+          onOpenTrip={onOpenTrip}
           onBackToRenter={onBackToRenter}
         />
       );
@@ -1085,9 +1288,7 @@ function renderHostTab({
         />
       );
     case "messages":
-      return (
-        <MessagesScreen chats={mockChats} hostMode onOpenChat={onOpenChat} />
-      );
+      return <MessagesScreen chats={chats} hostMode onOpenChat={onOpenChat} />;
     case "profile":
       return (
         <HostProfileScreen
@@ -1101,692 +1302,6 @@ function renderHostTab({
         />
       );
   }
-}
-
-function RenterHomeScreen({
-  unreadNotifications,
-  listings,
-  listingsLoading,
-  listingsError,
-  onSelectProfile,
-  onSelectTrips,
-  onSelectExplore,
-  onOpenNotifications,
-  onOpenTrip,
-  onOpenVehicle,
-}: {
-  unreadNotifications: number;
-  listings: VehicleListing[];
-  listingsLoading: boolean;
-  listingsError: string | null;
-  onSelectProfile: () => void;
-  onSelectTrips: () => void;
-  onSelectExplore: () => void;
-  onOpenNotifications: () => void;
-  onOpenTrip: () => void;
-  onOpenVehicle: (vehicleId: string) => void;
-}) {
-  const [selectedCategory, setSelectedCategory] =
-    useState<HomeVehicleCategory>("all");
-  const [nearbyPermissionState, setNearbyPermissionState] = useState<
-    "idle" | "loading" | "granted" | "denied" | "error"
-  >("idle");
-  const [nearbyUserCoordinates, setNearbyUserCoordinates] =
-    useState<Coordinates | null>(null);
-  const [nearbyStatusText, setNearbyStatusText] = useState<string | null>(null);
-  const categoryChips: Array<{
-    key: HomeVehicleCategory;
-    label: string;
-    icon: keyof typeof Ionicons.glyphMap;
-  }> = [
-    { key: "all", label: "All", icon: "car-sport" },
-    { key: "nearby", label: "Nearby", icon: "navigate-outline" },
-    { key: "coupes", label: "Coupes", icon: "car-sport-outline" },
-    { key: "sedans", label: "Sedans", icon: "car-outline" },
-    { key: "suvs", label: "SUVs", icon: "car-sport-outline" },
-    { key: "vans", label: "Vans", icon: "bus-outline" },
-    { key: "trucks", label: "Trucks", icon: "cube-outline" },
-    { key: "buses", label: "Buses", icon: "bus" },
-  ];
-  const nearbyResults = useMemo(
-    () => getNearbyVehicleListings(listings, nearbyUserCoordinates),
-    [listings, nearbyUserCoordinates],
-  );
-  const homeCategoryListings = useMemo(() => {
-    if (selectedCategory === "all") {
-      return listings;
-    }
-
-    if (selectedCategory === "nearby") {
-      return nearbyResults.vehicles;
-    }
-
-    return listings.filter(
-      (vehicle) => getHomeVehicleCategory(vehicle) === selectedCategory,
-    );
-  }, [listings, nearbyResults.vehicles, selectedCategory]);
-  const curatedSections = useMemo(
-    () => buildRenterHomeSections(homeCategoryListings),
-    [homeCategoryListings],
-  );
-  const isAllCategory = selectedCategory === "all";
-  const selectedCategoryLabel =
-    categoryChips.find((chip) => chip.key === selectedCategory)?.label ??
-    "category";
-  const focusedSectionTitle =
-    selectedCategory === "nearby" ? "Nearby vehicles" : selectedCategoryLabel;
-  const focusedSectionSubtitle =
-    selectedCategory === "nearby"
-      ? nearbyResults.mode === "nearby"
-        ? `${homeCategoryListings.length} vehicle${
-            homeCategoryListings.length === 1 ? "" : "s"
-          } within ${NEARBY_LISTINGS_RADIUS_KM} km of you`
-        : `Using your current location to find listings within ${NEARBY_LISTINGS_RADIUS_KM} km`
-      : `${homeCategoryListings.length} ${selectedCategoryLabel.toLowerCase()} vehicle${
-          homeCategoryListings.length === 1 ? "" : "s"
-        } available`;
-
-  const requestNearbyAccess = async () => {
-    if (nearbyPermissionState === "loading") {
-      return;
-    }
-
-    setNearbyPermissionState("loading");
-    setNearbyStatusText(
-      `Finding vehicles within ${NEARBY_LISTINGS_RADIUS_KM} km of your current location...`,
-    );
-
-    try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-
-      if (!permission.granted) {
-        setNearbyPermissionState("denied");
-        setNearbyUserCoordinates(null);
-        setNearbyStatusText(
-          "Location permission is needed to show vehicles near you.",
-        );
-        return;
-      }
-
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Highest,
-      });
-
-      setNearbyPermissionState("granted");
-      setNearbyUserCoordinates({
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-      });
-      setNearbyStatusText(null);
-    } catch (error) {
-      setNearbyPermissionState("error");
-      setNearbyUserCoordinates(null);
-      setNearbyStatusText(
-        error instanceof Error
-          ? error.message
-          : "We couldn't read your current location just now.",
-      );
-    }
-  };
-
-  const handleCategoryPress = (category: HomeVehicleCategory) => {
-    setSelectedCategory(category);
-
-    if (category === "nearby" && nearbyPermissionState !== "loading") {
-      void requestNearbyAccess();
-    }
-  };
-
-  return (
-    <ScrollView
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}>
-      <View style={styles.discoveryTopRow}>
-        <View style={styles.discoveryTitleWrap}>
-          <Text style={styles.discoveryEyebrow}>Across Jamaica</Text>
-          <Text style={styles.discoveryHeading}>Search your next ride</Text>
-        </View>
-        <PageActionButton
-          icon='notifications-outline'
-          badge={unreadNotifications}
-          onPress={onOpenNotifications}
-        />
-      </View>
-
-      <Pressable style={styles.discoverySearchBar} onPress={onSelectExplore}>
-        <View style={styles.discoverySearchPrompt}>
-          <Ionicons
-            name='search'
-            size={18}
-            color={palette.onSurfaceVariant}
-          />
-          <Text style={styles.discoverySearchText}>Search anywhere</Text>
-        </View>
-        <View style={styles.discoverySearchButton}>
-          <Ionicons name='options-outline' size={18} color={palette.onPrimary} />
-        </View>
-      </Pressable>
-
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.discoveryCategoryRow}>
-        {categoryChips.map((chip) => (
-          <DiscoveryCategoryChip
-            key={chip.key}
-            icon={chip.icon}
-            label={chip.label}
-            selected={selectedCategory === chip.key}
-            onPress={() => handleCategoryPress(chip.key)}
-          />
-        ))}
-      </ScrollView>
-
-      <View style={styles.discoverySpotlightCard}>
-        <View style={styles.discoverySpotlightCopy}>
-          <Text style={styles.discoverySpotlightTitle}>Ready for the weekend?</Text>
-          <Text style={styles.discoverySpotlightText}>
-            Browse verified hosts, airport-friendly pickups, and book faster
-            with saved preferences.
-          </Text>
-        </View>
-        <SecondaryAction label='Open trips' onPress={onSelectTrips} compact />
-      </View>
-
-      {listingsLoading ? (
-        <Text style={styles.helperText}>Loading live vehicle listings...</Text>
-      ) : null}
-      {listingsError ? (
-        <Text style={styles.errorText}>{listingsError}</Text>
-      ) : null}
-      {!listingsLoading && !listings.length ? (
-        <View style={styles.infoCard}>
-          <Ionicons name='car-outline' size={18} color={palette.primary} />
-          <Text style={styles.infoCardText}>
-            No active vehicle listings are live yet. Host-created listings will
-            appear here once they are activated.
-          </Text>
-        </View>
-      ) : null}
-
-      {!listingsLoading &&
-      selectedCategory === "nearby" &&
-      (nearbyStatusText || nearbyResults.mode === "empty") ? (
-        <View style={styles.infoCard}>
-          <Ionicons
-            name={
-              nearbyPermissionState === "loading"
-                ? "locate-outline"
-                : nearbyPermissionState === "denied" ||
-                    nearbyPermissionState === "error"
-                ? "location-outline"
-                : "navigate-outline"
-            }
-            size={18}
-            color={palette.primary}
-          />
-          <View style={styles.infoCardTextWrap}>
-            {nearbyStatusText ? (
-              <Text style={styles.infoCardText}>{nearbyStatusText}</Text>
-            ) : null}
-            {nearbyPermissionState === "denied" ? (
-              <Pressable onPress={() => Linking.openSettings()}>
-                <Text style={styles.infoCardLink}>Open settings</Text>
-              </Pressable>
-            ) : null}
-            {nearbyPermissionState === "granted" &&
-            nearbyResults.mode === "empty" ? (
-              <Text style={styles.infoCardText}>
-                No active listings were found within{" "}
-                {NEARBY_LISTINGS_RADIUS_KM} km of your current location yet.
-              </Text>
-            ) : null}
-          </View>
-        </View>
-      ) : null}
-
-      {!listingsLoading &&
-      listings.length &&
-      !homeCategoryListings.length &&
-      selectedCategory !== "nearby" ? (
-        <View style={styles.infoCard}>
-          <Ionicons name='funnel-outline' size={18} color={palette.primary} />
-          <Text style={styles.infoCardText}>
-            No live {selectedCategoryLabel.toLowerCase()} listings matched that
-            category yet.
-          </Text>
-        </View>
-      ) : null}
-
-      {!listingsLoading && isAllCategory && homeCategoryListings.length
-        ? curatedSections.map((section) => (
-            <View key={section.key} style={styles.discoverySection}>
-              <View style={styles.sectionHeader}>
-                <View style={styles.discoverySectionTitleWrap}>
-                  <Text style={styles.sectionTitle}>{section.title}</Text>
-                  <Text style={styles.discoverySectionSubtitle}>
-                    {section.subtitle}
-                  </Text>
-                </View>
-                <Pressable onPress={onSelectExplore}>
-                  <Text style={styles.discoverySectionLink}>See all</Text>
-                </Pressable>
-              </View>
-
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.discoveryRail}>
-                {section.vehicles.map((vehicle, index) => (
-                  <DiscoveryVehicleCard
-                    key={`${section.key}-${vehicle.id}`}
-                    vehicle={vehicle}
-                    accent={getBrowseListingAccent(index)}
-                    onPress={() => onOpenVehicle(vehicle.id)}
-                  />
-                ))}
-              </ScrollView>
-            </View>
-          ))
-        : null}
-
-      {!listingsLoading &&
-      !isAllCategory &&
-      homeCategoryListings.length &&
-      true ? (
-        <View style={styles.discoverySection}>
-          <View style={styles.sectionHeader}>
-            <View style={styles.discoverySectionTitleWrap}>
-              <Text style={styles.sectionTitle}>{focusedSectionTitle}</Text>
-              <Text style={styles.discoverySectionSubtitle}>
-                {focusedSectionSubtitle}
-              </Text>
-            </View>
-            <Pressable onPress={onSelectExplore}>
-              <Text style={styles.discoverySectionLink}>See all</Text>
-            </Pressable>
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.discoveryRail}>
-            {homeCategoryListings.map((vehicle, index) => (
-              <DiscoveryVehicleCard
-                key={`focused-${selectedCategory}-${vehicle.id}`}
-                vehicle={vehicle}
-                accent={getBrowseListingAccent(index)}
-                onPress={() => onOpenVehicle(vehicle.id)}
-              />
-            ))}
-          </ScrollView>
-        </View>
-      ) : null}
-    </ScrollView>
-  );
-}
-
-function ExploreScreen({
-  listings,
-  listingsLoading,
-  listingsError,
-  onOpenVehicle,
-  onStartVehicleBooking,
-  onOpenPickupPoints,
-}: {
-  listings: VehicleListing[];
-  listingsLoading: boolean;
-  listingsError: string | null;
-  onOpenVehicle: (vehicleId: string) => void;
-  onStartVehicleBooking: (vehicleId: string) => void;
-  onOpenPickupPoints: () => void;
-}) {
-  const [search, setSearch] = useState("");
-  const [listMode, setListMode] = useState<"list" | "map">("list");
-  const [selectedMapArea, setSelectedMapArea] = useState<string | null>(null);
-  const filters = ["Automatic", "Kingston", "Under JMD 8k", "Available"];
-  const mapRegions = buildExploreMapRegions(listings, mockPickupPoints);
-
-  const filteredVehicles = listings.filter((vehicle) => {
-    const query = search.trim().toLowerCase();
-    const matchesMapArea =
-      !selectedMapArea ||
-      getListingParish(vehicle.location, vehicle.parishCode) === selectedMapArea;
-    if (!query) {
-      return matchesMapArea;
-    }
-    return (
-      matchesMapArea &&
-      (getListingTitle(vehicle).toLowerCase().includes(query) ||
-        vehicle.location.toLowerCase().includes(query) ||
-        vehicle.transmission.toLowerCase().includes(query) ||
-        vehicle.fuelType.toLowerCase().includes(query) ||
-        vehicle.ownerName?.toLowerCase().includes(query) === true)
-    );
-  });
-
-  const selectedRegion =
-    mapRegions.find((region) => region.key === selectedMapArea) ?? null;
-
-  return (
-    <ScrollView
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}>
-      <PageHeader
-        title='Explore'
-        subtitle='Search by category, location, price, availability, and pickup point.'
-      />
-
-      <View style={styles.searchShell}>
-        <Ionicons
-          name='search'
-          size={18}
-          color={palette.onSurfaceVariant}
-          style={styles.searchIcon}
-        />
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder='Search vehicles, parishes, or hosts'
-          placeholderTextColor={palette.onSurfaceVariant}
-          style={styles.searchInput}
-          selectionColor={palette.primary}
-        />
-      </View>
-
-      <View style={styles.filterRow}>
-        {filters.map((filter) => (
-          <View key={filter} style={styles.filterChip}>
-            <Text style={styles.filterChipText}>{filter}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.toggleShell}>
-        <ToggleButton
-          label='List'
-          selected={listMode === "list"}
-          onPress={() => setListMode("list")}
-        />
-        <ToggleButton
-          label='Map'
-          selected={listMode === "map"}
-          onPress={() => setListMode("map")}
-        />
-      </View>
-
-      {listMode === "map" ? (
-        <View style={styles.mapPreviewCard}>
-          <Text style={styles.mapPreviewTitle}>Map-based vehicle search</Text>
-          <Text style={styles.mapPreviewSubtitle}>
-            Tap a parish pin to focus available vehicles and approved pickup
-            zones in that area.
-          </Text>
-
-          <View style={styles.mapCanvas}>
-            <View style={styles.mapBackdropGlowA} />
-            <View style={styles.mapBackdropGlowB} />
-
-            <View style={styles.mapIslandViewport}>
-              <Svg
-                width='100%'
-                height='100%'
-                viewBox={`${MAP_VIEWBOX.x} ${MAP_VIEWBOX.y} ${MAP_VIEWBOX.width} ${MAP_VIEWBOX.height}`}
-                preserveAspectRatio='xMidYMid meet'
-                style={styles.mapIslandSvg}>
-                <Path
-                  d={JAMAICA_OUTLINE_PATH}
-                  fill='rgba(226,232,240,0.14)'
-                  stroke='rgba(255,255,255,0.28)'
-                  strokeWidth={7}
-                />
-                {mapRegions.map((region) => {
-                  const selected = selectedMapArea === region.key;
-                  return (
-                    <G key={`svg-${region.key}`}>
-                      <SvgText
-                        x={region.x + region.labelDx}
-                        y={region.y + region.labelDy}
-                        fill={selected ? "#EAFEF6" : "rgba(226,232,240,0.68)"}
-                        fontSize='26'
-                        fontWeight='600'>
-                        {region.label}
-                      </SvgText>
-                      <Circle
-                        cx={region.x}
-                        cy={region.y}
-                        r={selected ? 24 : 18}
-                        fill={
-                          selected
-                            ? "rgba(33,216,160,0.22)"
-                            : "rgba(14,25,35,0.85)"
-                        }
-                        stroke={
-                          selected
-                            ? "rgba(33,216,160,0.72)"
-                            : "rgba(255,255,255,0.12)"
-                        }
-                        strokeWidth={selected ? 5 : 3}
-                      />
-                      <Circle
-                        cx={region.x}
-                        cy={region.y}
-                        r={selected ? 8 : 6}
-                        fill='#21D8A0'
-                      />
-                      <SvgText
-                        x={region.x + 18}
-                        y={region.y + 8}
-                        fill={selected ? "#EAFEF6" : "rgba(226,232,240,0.78)"}
-                        fontSize='26'
-                        fontWeight='700'>
-                        {String(region.vehicleCount)}
-                      </SvgText>
-                    </G>
-                  );
-                })}
-              </Svg>
-
-              {mapRegions.map((region) => (
-                <Pressable
-                  key={region.key}
-                  style={[
-                    styles.mapMarkerTapTarget,
-                    {
-                      top: `${
-                        ((region.y - MAP_VIEWBOX.y) / MAP_VIEWBOX.height) * 100
-                      }%`,
-                      left: `${
-                        ((region.x - MAP_VIEWBOX.x) / MAP_VIEWBOX.width) * 100
-                      }%`,
-                    },
-                  ]}
-                  onPress={() =>
-                    setSelectedMapArea((current) =>
-                      current === region.key ? null : region.key,
-                    )
-                  }
-                />
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.mapLegendInline}>
-            <View style={styles.mapLegendChip}>
-              <Ionicons name='car-sport' size={14} color={palette.primary} />
-              <Text style={styles.mapLegendChipText}>Listings</Text>
-            </View>
-            <View style={styles.mapLegendChip}>
-              <Ionicons name='location' size={14} color={palette.info} />
-              <Text style={styles.mapLegendChipText}>Pickup points</Text>
-            </View>
-            <Text style={styles.mapLegendMetaInline}>
-              {selectedRegion
-                ? `${selectedRegion.label}: ${selectedRegion.vehicleCount} listing(s), ${selectedRegion.pickupCount} pickup point(s)`
-                : `${filteredVehicles.length} listing(s) across ${mapRegions.length} mapped areas`}
-            </Text>
-          </View>
-
-          <View style={styles.mapAreaScroller}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-              <View style={styles.mapAreaChipRow}>
-                <Pressable
-                  style={[
-                    styles.mapAreaChip,
-                    !selectedMapArea && styles.mapAreaChipSelected,
-                  ]}
-                  onPress={() => setSelectedMapArea(null)}>
-                  <Text
-                    style={[
-                      styles.mapAreaChipText,
-                      !selectedMapArea && styles.mapAreaChipTextSelected,
-                    ]}>
-                    All
-                  </Text>
-                </Pressable>
-                {mapRegions.map((region) => {
-                  const selected = selectedMapArea === region.key;
-                  return (
-                    <Pressable
-                      key={`chip-${region.key}`}
-                      style={[
-                        styles.mapAreaChip,
-                        selected && styles.mapAreaChipSelected,
-                      ]}
-                      onPress={() =>
-                        setSelectedMapArea((current) =>
-                          current === region.key ? null : region.key,
-                        )
-                      }>
-                      <Text
-                        style={[
-                          styles.mapAreaChipText,
-                          selected && styles.mapAreaChipTextSelected,
-                        ]}>
-                        {region.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </ScrollView>
-          </View>
-
-          <View style={styles.mapSummaryCard}>
-            <Text style={styles.mapSummaryTitle}>
-              {selectedRegion
-                ? `${selectedRegion.label} overview`
-                : "Explore all active areas"}
-            </Text>
-            <Text style={styles.mapSummaryText}>
-              {selectedRegion
-                ? `This area has ${selectedRegion.vehicleCount} live vehicle listing(s) and ${selectedRegion.pickupCount} approved pickup point(s).`
-                : "Switch between map pins to narrow live listings by parish before opening a vehicle."}
-            </Text>
-          </View>
-
-          <SecondaryAction
-            label={
-              selectedRegion
-                ? `View ${selectedRegion.label} pickup points`
-                : "View pickup points"
-            }
-            onPress={onOpenPickupPoints}
-          />
-        </View>
-      ) : null}
-
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Search results</Text>
-        <Text style={styles.sectionMeta}>
-          {filteredVehicles.length} vehicles
-        </Text>
-      </View>
-
-      {listingsLoading ? (
-        <Text style={styles.helperText}>Loading live search results...</Text>
-      ) : null}
-      {listingsError ? (
-        <Text style={styles.errorText}>{listingsError}</Text>
-      ) : null}
-      {!listingsLoading && !filteredVehicles.length ? (
-        <View style={styles.infoCard}>
-          <Ionicons name='search-outline' size={18} color={palette.primary} />
-          <Text style={styles.infoCardText}>
-            No active listings matched that search yet.
-          </Text>
-        </View>
-      ) : null}
-
-      {filteredVehicles.map((vehicle, index) => (
-        <View key={vehicle.id} style={styles.resultCard}>
-          <Pressable
-            style={styles.resultContentPressable}
-            onPress={() => onOpenVehicle(vehicle.id)}>
-            {vehicle.photos[0]?.url ? (
-              <Image
-                source={{ uri: vehicle.photos[0].url }}
-                style={styles.resultImage}
-                resizeMode='cover'
-              />
-            ) : (
-              <View
-                style={[
-                  styles.resultCardAccent,
-                  { backgroundColor: getBrowseListingAccent(index) },
-                ]}
-              />
-            )}
-            <View style={styles.resultCardBody}>
-              <View style={styles.resultHeaderRow}>
-                <View style={styles.resultTitleWrap}>
-                  <Text style={styles.resultTitle}>
-                    {getListingTitle(vehicle)}
-                  </Text>
-                  <Text style={styles.resultSubtitle}>{vehicle.location}</Text>
-                </View>
-                <View style={styles.resultPriceWrap}>
-                  <Text style={styles.resultPrice}>
-                    JMD {vehicle.dailyRate.toLocaleString()}
-                  </Text>
-                  <Text style={styles.resultPriceLabel}>per day</Text>
-                </View>
-              </View>
-              <Text style={styles.resultSpecs}>
-                {vehicle.transmission} · {vehicle.fuelType} · {vehicle.seats}{" "}
-                seats
-              </Text>
-              <View style={styles.resultMetaRow}>
-                <StatusChip label='Active' tone='success' />
-                <StatusChip
-                  label={vehicle.hasDailyLimit ? "Mileage cap" : "Unlimited km"}
-                  tone='info'
-                />
-              </View>
-              <View style={styles.resultHostBlock}>
-                <Text style={styles.resultHostLabel}>Host</Text>
-                <Text style={styles.resultHostName}>
-                  {vehicle.ownerName?.trim() || "Host"}
-                </Text>
-              </View>
-            </View>
-          </Pressable>
-          <View style={styles.resultActionsRow}>
-            <SecondaryAction
-              label='View details'
-              onPress={() => onOpenVehicle(vehicle.id)}
-              compact
-            />
-            <PrimaryAction
-              label='Book now'
-              onPress={() => onStartVehicleBooking(vehicle.id)}
-              compact
-            />
-          </View>
-        </View>
-      ))}
-    </ScrollView>
-  );
 }
 
 function TripsScreen({
@@ -1821,7 +1336,7 @@ function TripsScreen({
             key={trip.id}
             trip={trip}
             onOpenTrip={() => onOpenTrip(trip.id)}
-            onOpenChat={() => onOpenChat(mockChats[0].id)}
+            onOpenChat={() => onOpenChat(getChatIdForTrip(trip.id))}
           />
         ))}
       </SectionBlock>
@@ -1832,7 +1347,7 @@ function TripsScreen({
             key={trip.id}
             trip={trip}
             onOpenTrip={() => onOpenTrip(trip.id)}
-            onOpenChat={() => onOpenChat(mockChats[1].id)}
+            onOpenChat={() => onOpenChat(getChatIdForTrip(trip.id))}
           />
         ))}
       </SectionBlock>
@@ -1843,7 +1358,7 @@ function TripsScreen({
             key={trip.id}
             trip={trip}
             onOpenTrip={() => onOpenTrip(trip.id)}
-            onOpenChat={() => onOpenChat(mockChats[0].id)}
+            onOpenChat={() => onOpenChat(getChatIdForTrip(trip.id))}
           />
         ))}
       </SectionBlock>
@@ -2949,13 +2464,17 @@ function BrowseVehicleDetailScreen({
 }
 
 function VehicleBookingStartScreen({
+  token,
   vehicle,
+  existingTrips,
   user,
   pickupPoints,
   onBack,
   onSubmit,
 }: {
+  token: string | null;
   vehicle: VehicleListing;
+  existingTrips: MockTrip[];
   user: AuthUser | null;
   pickupPoints: MockPickupPoint[];
   onBack: () => void;
@@ -2983,6 +2502,9 @@ function VehicleBookingStartScreen({
   const [dropoffId, setDropoffId] = useState(defaultPickupPoint?.id ?? "");
   const [hasEditedPickupLocation, setHasEditedPickupLocation] = useState(false);
   const [showTripEditor, setShowTripEditor] = useState(false);
+  const [activeCheckoutDateField, setActiveCheckoutDateField] = useState<
+    "pickup" | "dropoff" | null
+  >(null);
   const [activeCheckoutDropdown, setActiveCheckoutDropdown] = useState<
     "countryCode" | "age" | null
   >(null);
@@ -3006,6 +2528,7 @@ function VehicleBookingStartScreen({
   const [paymentMethodAdded, setPaymentMethodAdded] = useState(false);
   const [wantsPromos, setWantsPromos] = useState(false);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorText, setErrorText] = useState<string | null>(null);
 
   const bookingDates = getBookingDates(startDate, endDate);
@@ -3072,9 +2595,14 @@ function VehicleBookingStartScreen({
     }
   }, [endDate, startDate]);
 
-  const submitBooking = () => {
+  const submitBooking = async () => {
     if (!user) {
       setErrorText("Sign in before continuing with checkout.");
+      return;
+    }
+
+    if (!token) {
+      setErrorText("Reconnect your account before sending this booking request.");
       return;
     }
 
@@ -3084,7 +2612,7 @@ function VehicleBookingStartScreen({
     }
 
     if (startDate < TODAY_ISO) {
-      setErrorText("Choose a pickup date on or after July 25, 2026.");
+      setErrorText("Choose a pickup date on or after Monday, July 27, 2026.");
       return;
     }
 
@@ -3127,70 +2655,66 @@ function VehicleBookingStartScreen({
       return;
     }
 
-    const tripId = `trip-${vehicle.id}-${Date.now()}`;
-    const chatId = `chat-${vehicle.id}-${Date.now()}`;
-    const trip: MockTrip = {
-      id: tripId,
-      title: getListingTitle(vehicle),
-      location: vehicle.location,
-      status: "Pending",
-      startDate: formatBookingCardDate(startDate),
-      endDate: formatBookingCardDate(endDate),
-      totalDays,
-      totalAmount: tripTotal,
-      ownerPayout: Math.round(rentalBase * 0.8),
-      ownerName: vehicle.ownerName?.trim() || "Vehicle owner",
-      renterName: renterName || user.name?.trim() || user.email,
-      accent: getBrowseListingAccent(0),
-      pickupPointId: pickupId,
-      dropoffPointId: dropoffId,
-      notes: [
-        `Checkout complete for ${renterName || user.email}.`,
-        protectionAdded ? "Protection selected." : "No protection add-on selected.",
-        extraAdded ? "Extra item added." : "No extras added.",
-        bookingRate === "non-refundable"
-          ? "Non-refundable rate selected."
-          : "Refundable rate selected.",
-        promoCode.trim() ? `Promo code entered: ${promoCode.trim()}.` : "",
-      ]
-        .filter(Boolean)
-        .join(" "),
-    };
+    const conflictingTrip = findConflictingTrip(
+      existingTrips,
+      vehicle,
+      startDate,
+      endDate,
+    );
+    if (conflictingTrip) {
+      setErrorText(
+        `This vehicle already has a ${conflictingTrip.status.toLowerCase()} booking overlapping those dates.`,
+      );
+      return;
+    }
 
-    const chat: MockChat = {
-      id: chatId,
-      participantName: trip.ownerName,
-      participantRole: "Owner",
-      vehicle: trip.title,
-      unreadCount: 0,
-      lastMessage: "Booking request sent in-app.",
-      updatedAt: "Just now",
-      blockedAttempt: false,
-      messages: [
-        {
-          id: `${chatId}-system`,
-          sender: "system",
-          body: `Booking request created for ${trip.title} from ${trip.startDate} to ${trip.endDate}.`,
-          time: "Now",
-        },
-        {
-          id: `${chatId}-self`,
-          sender: "self",
-          body: `Hi, I just completed checkout for ${trip.title}.`,
-          time: "Now",
-        },
-      ],
-    };
+    const notes = [
+      `Checkout complete for ${renterName || user.email}.`,
+      protectionAdded ? "Protection selected." : "No protection add-on selected.",
+      extraAdded ? "Extra item added." : "No extras added.",
+      bookingRate === "non-refundable"
+        ? "Non-refundable rate selected."
+        : "Refundable rate selected.",
+      promoCode.trim() ? `Promo code entered: ${promoCode.trim()}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
 
-    setErrorText(null);
-    onSubmit({
-      trip,
-      chat,
-      selection: {
-        pickupId,
-        dropoffId,
-      },
-    });
+    try {
+      setIsSubmitting(true);
+      setErrorText(null);
+
+      const response = await createBooking(token, {
+        vehicleId: vehicle.id,
+        startDate,
+        endDate,
+        totalDays,
+        totalAmount: tripTotal,
+        ownerPayout: Math.round(rentalBase * 0.8),
+        pickupPointId: pickupId,
+        dropoffPointId: dropoffId,
+        notes,
+      });
+      const trip = mapBookingToTrip(response.booking);
+      const chat = mapBookingToChat(response.booking, user.id);
+
+      onSubmit({
+        trip,
+        chat,
+        selection: {
+          pickupId: trip.pickupPointId,
+          dropoffId: trip.dropoffPointId,
+        },
+      });
+    } catch (error) {
+      setErrorText(
+        error instanceof Error
+          ? error.message
+          : "Unable to send the booking request right now.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -3286,6 +2810,14 @@ function VehicleBookingStartScreen({
                   onChange={setStartDate}
                   icon='calendar-outline'
                   minimumDate={TODAY_ISO}
+                  open={activeCheckoutDateField === "pickup"}
+                  hideInlinePicker
+                  onToggle={() =>
+                    setActiveCheckoutDateField((current) =>
+                      current === "pickup" ? null : "pickup",
+                    )
+                  }
+                  onClose={() => setActiveCheckoutDateField(null)}
                 />
               </View>
               <View style={styles.checkoutFieldHalf}>
@@ -3295,9 +2827,36 @@ function VehicleBookingStartScreen({
                   onChange={setEndDate}
                   icon='calendar-outline'
                   minimumDate={addDaysIso(startDate, 1)}
+                  open={activeCheckoutDateField === "dropoff"}
+                  hideInlinePicker
+                  onToggle={() =>
+                    setActiveCheckoutDateField((current) =>
+                      current === "dropoff" ? null : "dropoff",
+                    )
+                  }
+                  onClose={() => setActiveCheckoutDateField(null)}
                 />
               </View>
             </View>
+
+            {activeCheckoutDateField ? (
+              <InlineDatePickerPanel
+                value={
+                  activeCheckoutDateField === "pickup" ? startDate : endDate
+                }
+                onChange={
+                  activeCheckoutDateField === "pickup"
+                    ? setStartDate
+                    : setEndDate
+                }
+                minimumDate={
+                  activeCheckoutDateField === "pickup"
+                    ? TODAY_ISO
+                    : addDaysIso(startDate, 1)
+                }
+                onDone={() => setActiveCheckoutDateField(null)}
+              />
+            ) : null}
 
             <Text style={styles.checkoutEditorLabel}>Pickup point</Text>
             {pickupPoints.map((point) => (
@@ -3840,8 +3399,11 @@ function VehicleBookingStartScreen({
         </View>
         <Pressable
           style={styles.checkoutBottomButton}
-          onPress={submitBooking}>
-          <Text style={styles.checkoutBottomButtonText}>Continue</Text>
+          onPress={() => void submitBooking()}
+          disabled={isSubmitting}>
+          <Text style={styles.checkoutBottomButtonText}>
+            {isSubmitting ? "Sending..." : "Continue"}
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -3963,9 +3525,11 @@ function ChatThreadScreen({
 }: {
   chat: MockChat;
   onBack: () => void;
-  onSend: () => void;
+  onSend: (messageBody: string) => Promise<void> | void;
 }) {
   const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
 
   return (
     <KeyboardAvoidingView
@@ -4049,18 +3613,33 @@ function ChatThreadScreen({
         <Pressable
           style={[
             styles.chatComposerButton,
-            !draft.trim() && styles.chatComposerButtonDisabled,
+            (!draft.trim() || sending) && styles.chatComposerButtonDisabled,
           ]}
-          onPress={() => {
-            if (!draft.trim()) {
+          onPress={async () => {
+            const nextBody = draft.trim();
+            if (!nextBody || sending) {
               return;
             }
-            setDraft("");
-            onSend();
+
+            setSending(true);
+            setErrorText(null);
+            try {
+              await onSend(nextBody);
+              setDraft("");
+            } catch (error) {
+              setErrorText(
+                error instanceof Error
+                  ? error.message
+                  : "Unable to send this message right now.",
+              );
+            } finally {
+              setSending(false);
+            }
           }}>
           <Ionicons name='send' size={16} color={palette.onPrimary} />
         </Pressable>
       </View>
+      {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
     </KeyboardAvoidingView>
   );
 }
@@ -4371,22 +3950,34 @@ function NotificationsScreen({
 }
 
 function HostDashboardScreen({
+  trips,
   listings,
   listingsLoading,
   listingsError,
   onOpenVehicleDetails,
   onOpenBookingRequest,
+  onOpenDamageClaim,
   onOpenPayouts,
   onOpenAdminPreview,
+  onOpenActiveBooking,
+  onOpenDraftListing,
+  onOpenBlockedDates,
+  onOpenTrip,
   onBackToRenter,
 }: {
+  trips: MockTrip[];
   listings: VehicleListing[];
   listingsLoading: boolean;
   listingsError: string | null;
   onOpenVehicleDetails: () => void;
   onOpenBookingRequest: () => void;
+  onOpenDamageClaim: () => void;
   onOpenPayouts: () => void;
   onOpenAdminPreview: () => void;
+  onOpenActiveBooking: () => void;
+  onOpenDraftListing: () => void;
+  onOpenBlockedDates: () => void;
+  onOpenTrip: (tripId: string) => void;
   onBackToRenter: () => void;
 }) {
   const liveListings = listings.filter(
@@ -4399,6 +3990,63 @@ function HostDashboardScreen({
     (count, listing) => count + listing.blockedDates.length,
     0,
   );
+  const pendingTrips = trips.filter((trip) => trip.status === "Pending");
+  const activeTrips = trips.filter(
+    (trip) => trip.status === "Confirmed" || trip.status === "Active",
+  );
+  const pastTrips = trips.filter(
+    (trip) => trip.status === "Completed" || trip.status === "Cancelled",
+  );
+  type HostPriorityTask = {
+    id: string;
+    title: string;
+    detail: string;
+    tone: "primary" | "warning" | "info";
+    onPress: () => void;
+  };
+  const damageClaimsCount = 0;
+  const payoutQueueCount = 0;
+  const hostPriorityTasks: HostPriorityTask[] = [
+    pendingTrips.length
+      ? {
+          id: "task-approve",
+          title:
+            pendingTrips.length === 1
+              ? "Approve 1 booking request"
+              : `Approve ${pendingTrips.length} booking requests`,
+          detail:
+            pendingTrips.length === 1
+              ? "A renter is waiting for host review."
+              : `${pendingTrips.length} renters are waiting for host review.`,
+          tone: "primary" as const,
+          onPress: onOpenBookingRequest,
+        }
+      : null,
+    damageClaimsCount
+      ? {
+          id: "task-claim",
+          title:
+            damageClaimsCount === 1
+              ? "Review 1 damage claim"
+              : `Review ${damageClaimsCount} damage claims`,
+          detail: "Hosts have submitted post-trip damage issues for review.",
+          tone: "warning" as const,
+          onPress: onOpenDamageClaim,
+        }
+      : null,
+    payoutQueueCount
+      ? {
+          id: "task-payout",
+          title:
+            payoutQueueCount === 1
+              ? "Process 1 payout request"
+              : `Process ${payoutQueueCount} payout requests`,
+          detail: "Payout requests are ready for transfer and reconciliation.",
+          tone: "info" as const,
+          onPress: onOpenPayouts,
+        }
+      : null,
+  ].filter((task): task is HostPriorityTask => Boolean(task));
 
   return (
     <ScrollView
@@ -4422,15 +4070,31 @@ function HostDashboardScreen({
       </View>
 
       <View style={styles.dashboardMetricRow}>
-        <DashboardMetric label='Pending requests' value='03' tone='primary' />
-        <DashboardMetric label='Damage claims' value='01' tone='warning' />
+        <DashboardMetric
+          label='Pending requests'
+          value={String(pendingTrips.length).padStart(2, "0")}
+          tone='primary'
+          onPress={onOpenBookingRequest}
+        />
+        <DashboardMetric
+          label='Damage claims'
+          value={String(damageClaimsCount).padStart(2, "0")}
+          tone='warning'
+          onPress={onOpenDamageClaim}
+        />
       </View>
       <View style={styles.dashboardMetricRow}>
-        <DashboardMetric label='Payout queue' value='03' tone='info' />
         <DashboardMetric
-          label='Live listings'
-          value={String(liveListings).padStart(2, "0")}
+          label='Payout queue'
+          value={String(payoutQueueCount).padStart(2, "0")}
+          tone='info'
+          onPress={onOpenPayouts}
+        />
+        <DashboardMetric
+          label='Active bookings'
+          value={String(activeTrips.length).padStart(2, "0")}
           tone='success'
+          onPress={onOpenActiveBooking}
         />
       </View>
 
@@ -4439,11 +4103,13 @@ function HostDashboardScreen({
           label='Draft listings'
           value={String(draftListings).padStart(2, "0")}
           tone='info'
+          onPress={onOpenDraftListing}
         />
         <DashboardMetric
           label='Blocked dates'
           value={String(blockedDays).padStart(2, "0")}
           tone='warning'
+          onPress={onOpenBlockedDates}
         />
       </View>
 
@@ -4461,9 +4127,52 @@ function HostDashboardScreen({
         </Pressable>
       </View>
 
-      {mockHostTasks.map((task) => (
-        <TaskRow key={task.id} task={task} />
-      ))}
+      {hostPriorityTasks.length ? (
+        hostPriorityTasks.map((task) => (
+          <TaskRow key={task.id} task={task} onPress={task.onPress} />
+        ))
+      ) : (
+        <View style={styles.infoCard}>
+          <Ionicons name='checkmark-circle-outline' size={18} color={palette.primary} />
+          <Text style={styles.infoCardText}>
+            No urgent host actions right now. New booking requests, damage
+            claims, and payouts will appear here when they exist.
+          </Text>
+        </View>
+      )}
+
+      <SectionBlock title='Pending booking requests' items={pendingTrips}>
+        {pendingTrips.slice(0, 3).map((trip) => (
+          <TripCard
+            key={trip.id}
+            trip={trip}
+            onOpenTrip={() => onOpenTrip(trip.id)}
+            onOpenChat={onOpenBookingRequest}
+          />
+        ))}
+      </SectionBlock>
+
+      <SectionBlock title='Active booking history' items={activeTrips}>
+        {activeTrips.slice(0, 3).map((trip) => (
+          <TripCard
+            key={trip.id}
+            trip={trip}
+            onOpenTrip={() => onOpenTrip(trip.id)}
+            onOpenChat={onOpenBookingRequest}
+          />
+        ))}
+      </SectionBlock>
+
+      <SectionBlock title='Past booking history' items={pastTrips}>
+        {pastTrips.slice(0, 3).map((trip) => (
+          <TripCard
+            key={trip.id}
+            trip={trip}
+            onOpenTrip={() => onOpenTrip(trip.id)}
+            onOpenChat={onOpenBookingRequest}
+          />
+        ))}
+      </SectionBlock>
 
       <View style={styles.overlayActionStack}>
         <PrimaryAction
@@ -4473,10 +4182,6 @@ function HostDashboardScreen({
         <SecondaryAction
           label='Open payout management'
           onPress={onOpenPayouts}
-        />
-        <SecondaryAction
-          label='Edit vehicle details'
-          onPress={onOpenVehicleDetails}
         />
       </View>
     </ScrollView>
@@ -6016,75 +5721,6 @@ function OverlayHeader({
   );
 }
 
-function PageHeader({
-  title,
-  subtitle,
-  action,
-}: {
-  title: string;
-  subtitle: string;
-  action?: {
-    icon: keyof typeof Ionicons.glyphMap;
-    badge?: number;
-    onPress: () => void;
-  };
-}) {
-  return (
-    <View style={styles.pageHeader}>
-      <View style={styles.pageHeaderText}>
-        <Text style={styles.pageTitle}>{title}</Text>
-        <Text style={styles.pageSubtitle}>{subtitle}</Text>
-      </View>
-      {action ? (
-        <Pressable style={styles.pageHeaderButton} onPress={action.onPress}>
-          <Ionicons name={action.icon} size={20} color={palette.onSurface} />
-          {action.badge && action.badge > 0 ? (
-            <View style={styles.headerBadge}>
-              <Text style={styles.headerBadgeText}>{action.badge}</Text>
-            </View>
-          ) : null}
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
-function PrimaryAction({
-  label,
-  onPress,
-  compact,
-}: {
-  label: string;
-  onPress: () => void;
-  compact?: boolean;
-}) {
-  return (
-    <Pressable
-      style={[styles.primaryButton, compact && styles.primaryButtonCompact]}
-      onPress={onPress}>
-      <Text style={styles.primaryButtonText}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function SecondaryAction({
-  label,
-  onPress,
-  compact,
-}: {
-  label: string;
-  onPress: () => void;
-  compact?: boolean;
-}) {
-  return (
-    <Pressable
-      style={[styles.secondaryButton, compact && styles.secondaryButtonCompact]}
-      onPress={onPress}>
-      <Text style={styles.secondaryButtonText}>{label}</Text>
-    </Pressable>
-  );
-}
-
 function QuickActionCard({
   icon,
   title,
@@ -6103,144 +5739,6 @@ function QuickActionCard({
       </View>
       <Text style={styles.quickTitle}>{title}</Text>
       <Text style={styles.quickSubtitle}>{subtitle}</Text>
-    </Pressable>
-  );
-}
-
-function PageActionButton({
-  icon,
-  badge,
-  onPress,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  badge?: number;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable style={styles.discoveryActionButton} onPress={onPress}>
-      <Ionicons name={icon} size={18} color={palette.onSurface} />
-      {badge && badge > 0 ? (
-        <View style={styles.headerBadge}>
-          <Text style={styles.headerBadgeText}>{badge}</Text>
-        </View>
-      ) : null}
-    </Pressable>
-  );
-}
-
-function DiscoveryCategoryChip({
-  icon,
-  label,
-  selected,
-  onPress,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  selected?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      style={[
-        styles.discoveryCategoryChip,
-        selected && styles.discoveryCategoryChipSelected,
-      ]}
-      onPress={onPress}>
-      <Ionicons
-        name={icon}
-        size={16}
-        color={selected ? "#111111" : palette.onSurfaceVariant}
-      />
-      <Text
-        style={[
-          styles.discoveryCategoryLabel,
-          selected && styles.discoveryCategoryLabelSelected,
-        ]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
-function DiscoveryVehicleCard({
-  vehicle,
-  accent,
-  onPress,
-}: {
-  vehicle: VehicleListing;
-  accent: string;
-  onPress: () => void;
-}) {
-  const year = getListingYear(vehicle);
-  const rating = getListingRating(vehicle);
-  const ratingCount = getListingRatingCount(vehicle);
-
-  return (
-    <Pressable style={styles.discoveryVehicleCard} onPress={onPress}>
-      <View style={styles.discoveryVehicleMedia}>
-        {vehicle.photos[0]?.url ? (
-          <Image
-            source={{ uri: vehicle.photos[0].url }}
-            style={styles.discoveryVehicleImage}
-            resizeMode='cover'
-          />
-        ) : (
-          <View
-            style={[
-              styles.discoveryVehicleFallback,
-              { backgroundColor: accent },
-            ]}>
-            <Ionicons name='car-sport' size={36} color='#0B0B0B' />
-          </View>
-        )}
-        <View style={styles.discoveryFavoriteButton}>
-          <Ionicons name='heart-outline' size={17} color='#FFFFFF' />
-        </View>
-      </View>
-
-      <View style={styles.discoveryVehicleBody}>
-        <Text style={styles.discoveryVehicleTitle} numberOfLines={2}>
-          {getListingTitle(vehicle)}
-        </Text>
-        <View style={styles.discoveryVehicleMetaRow}>
-          {year ? (
-            <Text style={styles.discoveryVehicleMeta}>{year}</Text>
-          ) : null}
-          <Text style={styles.discoveryVehicleMeta}>•</Text>
-          <Text style={styles.discoveryVehicleMeta}>{rating.toFixed(1)}</Text>
-          <Ionicons name='star' size={14} color={palette.secondary} />
-          <Text style={styles.discoveryVehicleMeta}>({ratingCount})</Text>
-        </View>
-        <View style={styles.discoveryVehiclePriceStack}>
-          <Text style={styles.discoveryVehiclePrice}>
-            JMD {vehicle.dailyRate.toLocaleString()}
-          </Text>
-        </View>
-      </View>
-    </Pressable>
-  );
-}
-
-function ToggleButton({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      style={[styles.toggleButton, selected && styles.toggleButtonSelected]}
-      onPress={onPress}>
-      <Text
-        style={[
-          styles.toggleButtonText,
-          selected && styles.toggleButtonTextSelected,
-        ]}>
-        {label}
-      </Text>
     </Pressable>
   );
 }
@@ -6448,10 +5946,12 @@ function DashboardMetric({
   label,
   value,
   tone,
+  onPress,
 }: {
   label: string;
   value: string;
   tone: "primary" | "warning" | "info" | "success";
+  onPress?: () => void;
 }) {
   const toneMap = {
     primary: "rgba(33,216,160,0.14)",
@@ -6461,17 +5961,26 @@ function DashboardMetric({
   };
 
   return (
-    <View style={[styles.metricCard, { backgroundColor: toneMap[tone] }]}>
+    <Pressable
+      style={({ pressed }) => [
+        styles.metricCard,
+        { backgroundColor: toneMap[tone] },
+        pressed && styles.pressableCardPressed,
+      ]}
+      onPress={onPress}
+      disabled={!onPress}>
       <Text style={styles.metricValue}>{value}</Text>
       <Text style={styles.metricLabel}>{label}</Text>
-    </View>
+    </Pressable>
   );
 }
 
 function TaskRow({
   task,
+  onPress,
 }: {
   task: { title: string; detail: string; tone: "primary" | "warning" | "info" };
+  onPress?: () => void;
 }) {
   const accent =
     task.tone === "warning"
@@ -6481,7 +5990,13 @@ function TaskRow({
       : palette.primary;
 
   return (
-    <View style={styles.taskRow}>
+    <Pressable
+      style={({ pressed }) => [
+        styles.taskRow,
+        pressed && styles.pressableCardPressed,
+      ]}
+      onPress={onPress}
+      disabled={!onPress}>
       <View style={[styles.taskDot, { backgroundColor: accent }]} />
       <View style={styles.taskBody}>
         <Text style={styles.taskTitle}>{task.title}</Text>
@@ -6492,7 +6007,7 @@ function TaskRow({
         size={18}
         color={palette.onSurfaceVariant}
       />
-    </View>
+    </Pressable>
   );
 }
 
@@ -6501,49 +6016,6 @@ function BalanceStat({ label, value }: { label: string; value: string }) {
     <View style={styles.balanceStat}>
       <Text style={styles.balanceStatLabel}>{label}</Text>
       <Text style={styles.balanceStatValue}>{value}</Text>
-    </View>
-  );
-}
-
-function StatusChip({
-  label,
-  tone,
-}: {
-  label: string;
-  tone: "success" | "warning" | "info" | "neutral" | "error";
-}) {
-  const toneMap = {
-    success: {
-      background: "rgba(74,222,128,0.14)",
-      text: palette.success,
-    },
-    warning: {
-      background: "rgba(246,179,37,0.14)",
-      text: palette.secondary,
-    },
-    info: {
-      background: "rgba(94,161,255,0.14)",
-      text: palette.info,
-    },
-    neutral: {
-      background: palette.surfaceVariant,
-      text: palette.onSurfaceSoft,
-    },
-    error: {
-      background: "rgba(255,102,102,0.14)",
-      text: palette.error,
-    },
-  };
-
-  return (
-    <View
-      style={[
-        styles.statusChip,
-        { backgroundColor: toneMap[tone].background },
-      ]}>
-      <Text style={[styles.statusChipText, { color: toneMap[tone].text }]}>
-        {label}
-      </Text>
     </View>
   );
 }
@@ -6629,6 +6101,10 @@ function DatePickerField({
   icon,
   minimumDate,
   maximumDate,
+  open,
+  hideInlinePicker,
+  onToggle,
+  onClose,
 }: {
   label: string;
   value: string;
@@ -6636,8 +6112,29 @@ function DatePickerField({
   icon?: keyof typeof Ionicons.glyphMap;
   minimumDate?: string;
   maximumDate?: string;
+  open?: boolean;
+  hideInlinePicker?: boolean;
+  onToggle?: () => void;
+  onClose?: () => void;
 }) {
-  const [showPicker, setShowPicker] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = open ?? internalOpen;
+
+  const togglePicker = () => {
+    if (onToggle) {
+      onToggle();
+      return;
+    }
+    setInternalOpen((current) => !current);
+  };
+
+  const closePicker = () => {
+    if (onClose) {
+      onClose();
+      return;
+    }
+    setInternalOpen(false);
+  };
 
   const pickerValue = isIsoDate(value)
     ? parseIsoDateToLocalDate(value)
@@ -6650,7 +6147,7 @@ function DatePickerField({
     selectedDate?: Date,
   ) => {
     if (Platform.OS === "android") {
-      setShowPicker(false);
+      closePicker();
       if (event.type === "dismissed" || !selectedDate) {
         return;
       }
@@ -6666,8 +6163,8 @@ function DatePickerField({
   return (
     <View style={styles.inputGroup}>
       <Text style={styles.inputLabel}>{label}</Text>
-      <Pressable onPress={() => setShowPicker((current) => !current)}>
-        <View style={[styles.inputShell, showPicker && styles.inputShellFocused]}>
+      <Pressable onPress={togglePicker}>
+        <View style={[styles.inputShell, isOpen && styles.inputShellFocused]}>
           {icon ? (
             <Ionicons
               name={icon}
@@ -6680,42 +6177,115 @@ function DatePickerField({
             {formatPickerFieldDate(value)}
           </Text>
           <Ionicons
-            name={showPicker ? "chevron-up" : "chevron-down"}
+            name={isOpen ? "chevron-up" : "chevron-down"}
             size={16}
             color={palette.onSurfaceVariant}
           />
         </View>
       </Pressable>
 
-      {showPicker ? (
+      {isOpen && !hideInlinePicker ? (
         <View style={styles.datePickerCard}>
-          <DateTimePicker
-            value={pickerValue}
-            mode='date'
-            display={Platform.OS === "ios" ? "spinner" : "default"}
-            onChange={handleChange}
-            textColor={palette.onSurface}
-            themeVariant='dark'
-            accentColor={palette.primary}
-            minimumDate={
-              minimumDate && isIsoDate(minimumDate)
-                ? parseIsoDateToLocalDate(minimumDate)
-                : undefined
-            }
-            maximumDate={
-              maximumDate && isIsoDate(maximumDate)
-                ? parseIsoDateToLocalDate(maximumDate)
-                : undefined
-            }
-          />
+          <View style={styles.datePickerWheelWrap}>
+            <DateTimePicker
+              value={pickerValue}
+              mode='date'
+              display={Platform.OS === "ios" ? "spinner" : "default"}
+              onChange={handleChange}
+              textColor={palette.onSurface}
+              themeVariant='dark'
+              accentColor={palette.primary}
+              style={Platform.OS === "ios" ? styles.datePickerWheel : undefined}
+              minimumDate={
+                minimumDate && isIsoDate(minimumDate)
+                  ? parseIsoDateToLocalDate(minimumDate)
+                  : undefined
+              }
+              maximumDate={
+                maximumDate && isIsoDate(maximumDate)
+                  ? parseIsoDateToLocalDate(maximumDate)
+                  : undefined
+              }
+            />
+          </View>
           {Platform.OS === "ios" ? (
             <Pressable
               style={styles.datePickerDoneButton}
-              onPress={() => setShowPicker(false)}>
+              onPress={closePicker}>
               <Text style={styles.datePickerDoneText}>Done</Text>
             </Pressable>
           ) : null}
         </View>
+      ) : null}
+    </View>
+  );
+}
+
+function InlineDatePickerPanel({
+  value,
+  onChange,
+  minimumDate,
+  maximumDate,
+  onDone,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  minimumDate?: string;
+  maximumDate?: string;
+  onDone: () => void;
+}) {
+  const pickerValue = isIsoDate(value)
+    ? parseIsoDateToLocalDate(value)
+    : minimumDate && isIsoDate(minimumDate)
+    ? parseIsoDateToLocalDate(minimumDate)
+    : new Date();
+
+  const handleChange = (
+    event: DateTimePickerEvent,
+    selectedDate?: Date,
+  ) => {
+    if (Platform.OS === "android") {
+      onDone();
+      if (event.type === "dismissed" || !selectedDate) {
+        return;
+      }
+      onChange(formatLocalDateToIso(selectedDate));
+      return;
+    }
+
+    if (selectedDate) {
+      onChange(formatLocalDateToIso(selectedDate));
+    }
+  };
+
+  return (
+    <View style={styles.datePickerCard}>
+      <View style={styles.datePickerWheelWrap}>
+        <DateTimePicker
+          value={pickerValue}
+          mode='date'
+          display={Platform.OS === "ios" ? "spinner" : "default"}
+          onChange={handleChange}
+          textColor={palette.onSurface}
+          themeVariant='dark'
+          accentColor={palette.primary}
+          style={Platform.OS === "ios" ? styles.datePickerWheel : undefined}
+          minimumDate={
+            minimumDate && isIsoDate(minimumDate)
+              ? parseIsoDateToLocalDate(minimumDate)
+              : undefined
+          }
+          maximumDate={
+            maximumDate && isIsoDate(maximumDate)
+              ? parseIsoDateToLocalDate(maximumDate)
+              : undefined
+          }
+        />
+      </View>
+      {Platform.OS === "ios" ? (
+        <Pressable style={styles.datePickerDoneButton} onPress={onDone}>
+          <Text style={styles.datePickerDoneText}>Done</Text>
+        </Pressable>
       ) : null}
     </View>
   );
@@ -7019,6 +6589,10 @@ function isIsoDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
+function getTodayIso() {
+  return formatLocalDateToIso(new Date());
+}
+
 function parseIsoDateToLocalDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(year, month - 1, day);
@@ -7065,6 +6639,248 @@ function getBookingDates(startDate: string, endDate: string) {
   }
 
   return days;
+}
+
+function getChatIdForTrip(tripId: string) {
+  return `chat-${tripId}`;
+}
+
+function formatRelativeDateTime(value?: string) {
+  if (!value) {
+    return "Just now";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "Just now";
+  }
+
+  const diffMs = Date.now() - parsed.getTime();
+  const diffMinutes = Math.max(0, Math.round(diffMs / 60000));
+
+  if (diffMinutes < 1) {
+    return "Just now";
+  }
+
+  if (diffMinutes < 60) {
+    return `${diffMinutes}m ago`;
+  }
+
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  }
+
+  const diffDays = Math.round(diffHours / 24);
+  if (diffDays === 1) {
+    return "Yesterday";
+  }
+
+  if (diffDays < 7) {
+    return `${diffDays}d ago`;
+  }
+
+  return parsed.toLocaleDateString("en-JM", {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatChatMessageTime(value?: string) {
+  if (!value) {
+    return "Now";
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "Now";
+  }
+
+  return parsed.toLocaleTimeString("en-JM", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function mapBookingToTrip(booking: BookingRecord): MockTrip {
+  return {
+    id: booking.id,
+    vehicleId: booking.vehicleId,
+    ownerId: booking.ownerId,
+    renterId: booking.renterId,
+    title: booking.title,
+    location: booking.location,
+    status: booking.status,
+    startDate: formatBookingCardDate(booking.startDate),
+    endDate: formatBookingCardDate(booking.endDate),
+    startDateIso: booking.startDate,
+    endDateIso: booking.endDate,
+    totalDays: booking.totalDays,
+    totalAmount: booking.totalAmount,
+    ownerPayout: booking.ownerPayout,
+    ownerName: booking.ownerName,
+    renterName: booking.renterName,
+    accent:
+      booking.status === "Pending"
+        ? palette.info
+        : booking.status === "Cancelled"
+          ? palette.secondary
+          : palette.primary,
+    pickupPointId: booking.pickupPointId,
+    dropoffPointId: booking.dropoffPointId,
+    notes: booking.notes,
+    canReview: booking.status === "Completed",
+    canReportDamage: booking.status === "Completed",
+  };
+}
+
+function mapBookingToChat(
+  booking: BookingRecord,
+  currentUserId: string | null,
+): MockChat {
+  const isOwnerView = currentUserId === booking.ownerId;
+  const participantName = isOwnerView ? booking.renterName : booking.ownerName;
+  const participantRole = isOwnerView ? "Renter" : "Owner";
+  const messages = booking.messages.length
+    ? booking.messages.map((message) => ({
+        id: message.id,
+        sender:
+          message.senderRole === "system"
+            ? ("system" as const)
+            : currentUserId &&
+                ((message.senderRole === "owner" &&
+                  booking.ownerId === currentUserId) ||
+                  (message.senderRole === "renter" &&
+                    booking.renterId === currentUserId))
+              ? ("self" as const)
+              : ("other" as const),
+        body: message.body,
+        time: formatChatMessageTime(message.createdAt),
+      }))
+    : [
+        {
+          id: `${booking.id}-system-fallback`,
+          sender: "system" as const,
+          body: `Booking thread created for ${booking.startDate} to ${booking.endDate}.`,
+          time: "Now",
+        },
+      ];
+  const lastMessage = messages[messages.length - 1];
+
+  return {
+    id: getChatIdForTrip(booking.id),
+    bookingId: booking.id,
+    participantName,
+    participantRole,
+    vehicle: booking.title,
+    unreadCount: 0,
+    lastMessage: lastMessage?.body ?? "Booking thread started.",
+    updatedAt: formatRelativeDateTime(
+      booking.messages[booking.messages.length - 1]?.createdAt ??
+        booking.updatedAt ??
+        booking.createdAt,
+    ),
+    blockedAttempt: booking.messages.some(
+      (message) => message.kind === "blocked-contact",
+    ),
+    messages,
+  };
+}
+
+function upsertChat(currentChats: MockChat[], nextChat: MockChat) {
+  const existingIndex = currentChats.findIndex((chat) => chat.id === nextChat.id);
+  if (existingIndex === -1) {
+    return [nextChat, ...currentChats];
+  }
+
+  return currentChats.map((chat) => (chat.id === nextChat.id ? nextChat : chat));
+}
+
+function mapNotificationToMockNotification(
+  notification: AppNotificationRecord,
+): MockNotification {
+  return {
+    id: notification.id,
+    title: notification.title,
+    body: notification.body,
+    receivedAt: formatRelativeDateTime(
+      notification.createdAt ?? notification.updatedAt,
+    ),
+    type: notification.type,
+    unread: notification.unread,
+  };
+}
+
+function synchronizeTrips(trips: MockTrip[]) {
+  return trips.map((trip) => synchronizeTripStatus(trip));
+}
+
+function synchronizeTripStatus(trip: MockTrip) {
+  const startDateIso = trip.startDateIso;
+  const endDateIso = trip.endDateIso;
+
+  if (!startDateIso || !endDateIso || !isIsoDate(startDateIso) || !isIsoDate(endDateIso)) {
+    return trip;
+  }
+
+  let nextStatus = trip.status;
+
+  if (trip.status === "Confirmed") {
+    if (TODAY_ISO >= endDateIso) {
+      nextStatus = "Completed";
+    } else if (TODAY_ISO >= startDateIso) {
+      nextStatus = "Active";
+    }
+  } else if (trip.status === "Active" && TODAY_ISO >= endDateIso) {
+    nextStatus = "Completed";
+  }
+
+  return {
+    ...trip,
+    status: nextStatus,
+    canReview: nextStatus === "Completed" ? true : trip.canReview,
+    canReportDamage: nextStatus === "Completed" ? true : trip.canReportDamage,
+  };
+}
+
+function findConflictingTrip(
+  trips: MockTrip[],
+  vehicle: VehicleListing,
+  startDateIso: string,
+  endDateIso: string,
+) {
+  return trips
+    .map((trip) => synchronizeTripStatus(trip))
+    .find((trip) => {
+      if (!trip.startDateIso || !trip.endDateIso) {
+        return false;
+      }
+
+      if (
+        trip.status === "Cancelled" ||
+        trip.status === "Completed"
+      ) {
+        return false;
+      }
+
+      const matchesVehicle =
+        trip.vehicleId === vehicle.id ||
+        trip.title.trim().toLowerCase() === getListingTitle(vehicle).trim().toLowerCase();
+
+      return (
+        matchesVehicle &&
+        datesOverlap(startDateIso, endDateIso, trip.startDateIso, trip.endDateIso)
+      );
+    });
+}
+
+function datesOverlap(
+  startA: string,
+  endA: string,
+  startB: string,
+  endB: string,
+) {
+  return startA < endB && startB < endA;
 }
 
 function formatBookingCardDate(value: string) {
@@ -7155,388 +6971,8 @@ function formatListingLocation(parish: string, pickupAddress: string) {
   return `${cleanPickupAddress}, ${cleanParish}`;
 }
 
-function normalizeGeoLookup(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[.,]/g, "")
-    .replace(/[-/]/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-}
-
-function getParishMetaByCode(code?: ParishCode | null) {
-  return jamaicaParishCatalog.find((entry) => entry.code === code) ?? null;
-}
-
-function getParishLabelFromCode(code?: ParishCode | null) {
-  return getParishMetaByCode(code)?.label ?? null;
-}
-
-function getParishCodeFromLabel(
-  parish: (typeof jamaicaParishOptions)[number] | "",
-) {
-  return (
-    jamaicaParishCatalog.find((entry) => entry.label === parish)?.code ?? null
-  );
-}
-
-function inferParishCodeFromLocation(location: string) {
-  const normalized = normalizeGeoLookup(location);
-  const suffix = normalized
-    .split(",")
-    .map((segment) => segment.trim())
-    .filter(Boolean)
-    .slice(-2);
-  const suffixText = suffix.join(" ");
-
-  const suffixMatch = jamaicaParishCatalog.find((entry) =>
-    entry.aliases.some((alias) => suffixText.includes(normalizeGeoLookup(alias))),
-  );
-
-  if (suffixMatch) {
-    return suffixMatch.code;
-  }
-
-  const directMatch = jamaicaParishCatalog.find((entry) =>
-    entry.aliases.some((alias) => normalized.includes(normalizeGeoLookup(alias))),
-  );
-
-  return directMatch?.code ?? null;
-}
-
-function getListingParishCode(
-  listing: Pick<VehicleListing, "location" | "parishCode">,
-) {
-  const inferredParishCode = inferParishCodeFromLocation(listing.location);
-
-  if (
-    listing.parishCode &&
-    inferredParishCode &&
-    listing.parishCode !== inferredParishCode
-  ) {
-    return inferredParishCode;
-  }
-
-  return listing.parishCode ?? inferredParishCode;
-}
-
-function getListingParish(location: string, parishCode?: ParishCode | null) {
-  return (
-    getParishLabelFromCode(parishCode ?? inferParishCodeFromLocation(location)) ??
-    "Other"
-  );
-}
-
-function getCoordinatesForListing(
-  listing: Pick<VehicleListing, "location" | "parishCode">,
-): Coordinates | null {
-  return getParishMetaByCode(getListingParishCode(listing))?.coordinates ?? null;
-}
-
-function calculateDistanceKm(a: Coordinates, b: Coordinates) {
-  const toRadians = (value: number) => (value * Math.PI) / 180;
-  const earthRadiusKm = 6371;
-  const latitudeDelta = toRadians(b.latitude - a.latitude);
-  const longitudeDelta = toRadians(b.longitude - a.longitude);
-  const lat1 = toRadians(a.latitude);
-  const lat2 = toRadians(b.latitude);
-  const haversine =
-    Math.sin(latitudeDelta / 2) * Math.sin(latitudeDelta / 2) +
-    Math.cos(lat1) *
-      Math.cos(lat2) *
-      Math.sin(longitudeDelta / 2) *
-      Math.sin(longitudeDelta / 2);
-
-  return (
-    2 *
-    earthRadiusKm *
-    Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
-  );
-}
-
-function getNearbyVehicleListings(
-  listings: VehicleListing[],
-  userCoordinates: Coordinates | null,
-) {
-  if (!userCoordinates) {
-    return {
-      vehicles: [] as VehicleListing[],
-      mode: "unavailable" as const,
-    };
-  }
-
-  const rankedListings = listings
-    .map((vehicle) => {
-      const coordinates = getCoordinatesForListing(vehicle);
-
-      if (!coordinates) {
-        return null;
-      }
-
-      return {
-        vehicle,
-        distanceKm: calculateDistanceKm(userCoordinates, coordinates),
-      };
-    })
-    .filter(
-      (
-        entry,
-      ): entry is {
-        vehicle: VehicleListing;
-        distanceKm: number;
-      } => Boolean(entry),
-    )
-    .sort((left, right) => left.distanceKm - right.distanceKm);
-
-  const nearbyListings = rankedListings
-    .filter((entry) => entry.distanceKm <= NEARBY_LISTINGS_RADIUS_KM)
-    .map((entry) => entry.vehicle);
-
-  if (nearbyListings.length) {
-    return {
-      vehicles: nearbyListings.slice(0, 8),
-      mode: "nearby" as const,
-    };
-  }
-
-  return {
-    vehicles: [] as VehicleListing[],
-    mode: rankedListings.length ? ("empty" as const) : ("unavailable" as const),
-  };
-}
-
-function getParishMapPosition(parish: string) {
-  switch (parish) {
-    case "Kingston":
-      return { x: 690, y: 240, labelDx: -49, labelDy: 39 };
-    case "St. James":
-      return { x: 250, y: 35, labelDx: -49, labelDy: -20 };
-    case "St. Ann":
-      return { x: 440, y: 50, labelDx: -40, labelDy: -30 };
-    default:
-      return { x: 654, y: 204, labelDx: -20, labelDy: -18 };
-  }
-}
-
-function buildExploreMapRegions(
-  listings: VehicleListing[],
-  pickupPoints: MockPickupPoint[],
-) {
-  const regionMap = new Map<
-    string,
-    {
-      key: string;
-      label: string;
-      x: number;
-      y: number;
-      labelDx: number;
-      labelDy: number;
-      vehicleCount: number;
-      pickupCount: number;
-    }
-  >();
-
-  listings.forEach((vehicle) => {
-    const parish = getListingParish(vehicle.location, vehicle.parishCode);
-    const position = getParishMapPosition(parish);
-    const existing = regionMap.get(parish);
-
-    regionMap.set(parish, {
-      key: parish,
-      label: parish,
-      x: position.x,
-      y: position.y,
-      labelDx: position.labelDx,
-      labelDy: position.labelDy,
-      vehicleCount: (existing?.vehicleCount ?? 0) + 1,
-      pickupCount:
-        existing?.pickupCount ??
-        pickupPoints.filter((point) => point.parish === parish).length,
-    });
-  });
-
-  pickupPoints.forEach((point) => {
-    if (regionMap.has(point.parish)) {
-      return;
-    }
-
-    const position = getParishMapPosition(point.parish);
-    regionMap.set(point.parish, {
-      key: point.parish,
-      label: point.parish,
-      x: position.x,
-      y: position.y,
-      labelDx: position.labelDx,
-      labelDy: position.labelDy,
-      vehicleCount: 0,
-      pickupCount: pickupPoints.filter(
-        (pickupPoint) => pickupPoint.parish === point.parish,
-      ).length,
-    });
-  });
-
-  return [...regionMap.values()].sort(
-    (a, b) => b.vehicleCount - a.vehicleCount,
-  );
-}
-
-function getListingTitle(listing: VehicleListing) {
-  return `${listing.make} ${listing.model}`.trim();
-}
-
 function getListingSubtitle(listing: VehicleListing) {
   return `${listing.location} · ${listing.transmission} · ${listing.fuelType}`;
-}
-
-function getListingCategoryLabel(listing: VehicleListing) {
-  if (listing.category) {
-    return listing.category;
-  }
-
-  switch (getHomeVehicleCategory(listing)) {
-    case "coupes":
-      return "Coupe";
-    case "sedans":
-      return "Sedan";
-    case "suvs":
-      return "SUV";
-    case "vans":
-      return "Van";
-    case "trucks":
-      return "Truck";
-    case "buses":
-      return "Bus";
-    default:
-      return "Vehicle";
-  }
-}
-
-function getListingYear(listing: VehicleListing) {
-  const title = getListingTitle(listing);
-  const match = title.match(/\b(19|20)\d{2}\b/);
-  return match ? match[0] : "";
-}
-
-function getListingRating(_listing: VehicleListing) {
-  return 5.0;
-}
-
-function getListingRatingCount(_listing: VehicleListing) {
-  return 0;
-}
-
-function getHomeVehicleCategory(listing: VehicleListing): HomeVehicleCategory {
-  const haystack = `${listing.make} ${listing.model} ${listing.description}`.toLowerCase();
-  const legacyCategory = listing.category?.toLowerCase();
-
-  if (listing.category === "SUV") {
-    return "suvs";
-  }
-
-  if (listing.category === "Van") {
-    return "vans";
-  }
-
-  if (listing.category === "Truck") {
-    return "trucks";
-  }
-
-  if (listing.category === "Bus") {
-    return "buses";
-  }
-
-  if (listing.category === "Coupe" || legacyCategory === "sports") {
-    return "coupes";
-  }
-
-  if (listing.category === "Sedan") {
-    return "sedans";
-  }
-
-  if (
-    /bus|coaster|coach|minibus/.test(haystack) ||
-    listing.seats >= 18
-  ) {
-    return "buses";
-  }
-
-  if (
-    /hiace|voxy|noah|serena|caravan|van/.test(haystack) ||
-    (listing.seats >= 7 && listing.seats < 18)
-  ) {
-    return "vans";
-  }
-
-  if (
-    /hilux|ranger|d-max|bt-50|tundra|pickup|truck/.test(haystack)
-  ) {
-    return "trucks";
-  }
-
-  if (
-    /rav4|cr-v|cx-|sportage|tucson|x5|x3|gle|q5|q7|suv/.test(haystack)
-  ) {
-    return "suvs";
-  }
-
-  if (
-    /m2|m3|m4|m8|corvette|mustang|camaro|supra|gt-r|gtr|911|cayman|boxster|z4|brz|gr86|mx-5|miata|coupe|roadster|convertible/.test(
-      haystack,
-    ) ||
-    (listing.doors <= 2 && listing.seats <= 5)
-  ) {
-    return "coupes";
-  }
-
-  return "sedans";
-}
-
-function buildRenterHomeSections(listings: VehicleListing[]) {
-  const byPrice = [...listings].sort((a, b) => a.dailyRate - b.dailyRate);
-  const featured = listings.slice(0, 8);
-  const roomy = listings.filter((vehicle) => vehicle.seats >= 6);
-  const value = byPrice.filter((vehicle) => vehicle.dailyRate <= 10000);
-  const coastal = listings.filter((vehicle) =>
-    /(montego bay|ocho rios|westmoreland|negril|st\. james|st\. ann)/i.test(
-      vehicle.location,
-    ),
-  );
-
-  return [
-    {
-      key: "featured",
-      title: "Featured this week",
-      subtitle: `${listings.length} live vehicles across Jamaica`,
-      vehicles: featured,
-    },
-    {
-      key: "roomy",
-      title: "Room for the crew",
-      subtitle: "SUVs, vans, and larger rides for airport runs and family plans",
-      vehicles: roomy.slice(0, 8),
-    },
-    {
-      key: "value",
-      title: "Easy on the budget",
-      subtitle: "Lower daily rates without leaving the app flow",
-      vehicles: value.slice(0, 8),
-    },
-    {
-      key: "coastal",
-      title: "Coastal pickups",
-      subtitle: "Popular handoff areas around Montego Bay and Ocho Rios",
-      vehicles: coastal.slice(0, 8),
-    },
-  ].filter((section) => section.vehicles.length > 0);
-}
-
-function capitalizeLabel(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function getBrowseListingAccent(index: number) {
-  const accents = ["#D7F2EC", "#FBE8C0", "#DBEAFE", "#F5D9D0"];
-  return accents[index % accents.length];
 }
 
 function getListingStatusLabel(status: VehicleListing["status"]) {
@@ -10087,6 +9523,18 @@ const styles = StyleSheet.create({
     backgroundColor: palette.surface,
     overflow: "hidden",
   },
+  datePickerWheelWrap: {
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    paddingHorizontal: spacing.md,
+  },
+  datePickerWheel: {
+    alignSelf: "center",
+    width: 300,
+    transform: [{ scaleX: 0.9 }],
+  },
   datePickerDoneButton: {
     alignItems: "center",
     justifyContent: "center",
@@ -10631,6 +10079,10 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     minHeight: 102,
     justifyContent: "space-between",
+  },
+  pressableCardPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.99 }],
   },
   metricValue: {
     color: palette.onSurface,
