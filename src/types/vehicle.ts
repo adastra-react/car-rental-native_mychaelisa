@@ -49,6 +49,7 @@ export type VehicleListing = {
   chassis: string;
   engine: string;
   parishCode?: ParishCode | null;
+  approvedPickupPointIds: string[];
   location: string;
   description: string;
   dailyRate: number;

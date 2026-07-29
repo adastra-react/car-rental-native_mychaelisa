@@ -16,6 +16,13 @@ export type BookingMessageRecord = {
   createdAt?: string;
 };
 
+export type BookingModerationRecord = {
+  blockedContactAttempts: number;
+  lastBlockedContactAt?: string;
+  flaggedForReview: boolean;
+  flaggedForReviewAt?: string;
+};
+
 export type BookingRecord = {
   id: string;
   vehicleId: string;
@@ -35,6 +42,7 @@ export type BookingRecord = {
   renterName: string;
   notes: string;
   messages: BookingMessageRecord[];
+  moderation: BookingModerationRecord;
   createdAt?: string;
   updatedAt?: string;
 };

@@ -32,6 +32,13 @@ import {
   updateBookingStatus,
 } from "../services/bookings";
 import {
+  disputeDamageClaim,
+  fetchDamageClaims,
+  reviewDamageClaim,
+  submitDamageClaim,
+  triggerDamageClaimCharge,
+} from "../services/damageClaims";
+import {
   fetchNotifications,
   markAllNotificationsRead,
   registerPushToken as registerPushTokenOnServer,
@@ -57,6 +64,16 @@ import {
   mockTrips,
   reviewTagOptions,
 } from "../data/mockAppData";
+import {
+  formatPickupPointFullLocation,
+  getApprovedPickupPointIdsForListing,
+  getApprovedPickupPointsForListing,
+  getDefaultApprovedPickupPointIds,
+  getPickupPointById,
+  getPickupPointRevealCopy,
+  KINGSTON_AIRPORT_PICKUP_POINT_ID,
+  MBJ_AIRPORT_PICKUP_POINT_ID,
+} from "../data/pickupPoints";
 import { UploadAsset } from "../services/auth";
 import {
   createVehicleListing,
@@ -75,6 +92,7 @@ import {
   NotificationPreferences,
 } from "../types/auth";
 import { BookingRecord } from "../types/booking";
+import { DamageClaimRecord } from "../types/damageClaim";
 import { AppNotificationRecord } from "../types/notification";
 import {
   ParishCode,
@@ -85,6 +103,9 @@ import {
 import { colors, radii, spacing, typography } from "../theme/tokens";
 import { isProfileComplete } from "../utils/profile";
 import { pickUploadAssets } from "../utils/uploadPicker";
+import { DamageClaimScreen } from "../features/damage-claims/DamageClaimScreen";
+import { AdminDamageClaimsScreen } from "../features/damage-claims/AdminDamageClaimsScreen";
+import { canDisputeDamageClaim as canUserDisputeDamageClaim } from "../features/damage-claims/helpers";
 import { ExploreScreen } from "./home-shell/ExploreScreen";
 import { RenterHomeScreen } from "./home-shell/RenterHomeScreen";
 import {
@@ -129,6 +150,7 @@ type OverlayScreen =
   | "payouts"
   | "notifications"
   | "admin-preview"
+  | "admin-damage-claims"
   | null;
 type VehicleCondition = "excellent" | "good" | "fair" | null;
 type CardBrand = "visa" | "mastercard" | "amex" | "discover" | "default";
@@ -177,6 +199,11 @@ export function HomeShell() {
   const [trips, setTrips] = useState<MockTrip[]>([]);
   const [tripsLoading, setTripsLoading] = useState(false);
   const [tripsError, setTripsError] = useState<string | null>(null);
+  const [damageClaims, setDamageClaims] = useState<DamageClaimRecord[]>([]);
+  const [damageClaimsLoading, setDamageClaimsLoading] = useState(false);
+  const [damageClaimsError, setDamageClaimsError] = useState<string | null>(
+    null,
+  );
   const [chats, setChats] = useState<MockChat[]>([]);
   const [registeredPushToken, setRegisteredPushToken] = useState<string | null>(
     null,
@@ -243,6 +270,34 @@ export function HomeShell() {
         : [],
     [currentUser?.id, trips],
   );
+  const hostDamageClaims = useMemo(
+    () =>
+      currentUser?.id
+        ? damageClaims.filter((claim) => claim.ownerId === currentUser.id)
+        : [],
+    [currentUser?.id, damageClaims],
+  );
+  const openHostDamageClaims = useMemo(
+    () =>
+      hostDamageClaims.filter(
+        (claim) =>
+          claim.status !== "Rejected" && claim.chargeStatus !== "Triggered",
+      ),
+    [hostDamageClaims],
+  );
+  const adminDamageClaims = useMemo(
+    () =>
+      currentUser?.role === "Admin"
+        ? damageClaims.filter(
+            (claim) =>
+              claim.status === "Submitted" ||
+              claim.status === "Disputed" ||
+              (claim.status === "Approved" &&
+                claim.chargeStatus !== "Triggered"),
+          )
+        : [],
+    [currentUser?.role, damageClaims],
+  );
   const hasCompletedProfile = useMemo(
     () => isProfileComplete(currentUser),
     [currentUser],
@@ -269,6 +324,22 @@ export function HomeShell() {
   const selectedBrowseVehicle =
     publicListings.find((vehicle) => vehicle.id === selectedBrowseVehicleId) ??
     null;
+  const selectedTripVehicle = useMemo(() => {
+    if (!selectedTrip.vehicleId) {
+      return null;
+    }
+
+    return (
+      publicListings.find((vehicle) => vehicle.id === selectedTrip.vehicleId) ??
+      hostListings.find((vehicle) => vehicle.id === selectedTrip.vehicleId) ??
+      null
+    );
+  }, [hostListings, publicListings, selectedTrip.vehicleId]);
+  const selectedTripDamageClaim = useMemo(
+    () =>
+      damageClaims.find((claim) => claim.bookingId === selectedTrip.id) ?? null,
+    [damageClaims, selectedTrip.id],
+  );
 
   const refreshBookings = useCallback(
     async (showLoading = false) => {
@@ -350,6 +421,31 @@ export function HomeShell() {
       );
     } catch (_error) {
       setNotifications([]);
+    }
+  }, [token]);
+
+  const refreshDamageClaims = useCallback(async () => {
+    if (!token) {
+      setDamageClaims([]);
+      setDamageClaimsError(null);
+      setDamageClaimsLoading(false);
+      return;
+    }
+
+    setDamageClaimsLoading(true);
+
+    try {
+      const response = await fetchDamageClaims(token);
+      setDamageClaims(response.claims);
+      setDamageClaimsError(null);
+    } catch (error) {
+      setDamageClaimsError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load damage claims right now.",
+      );
+    } finally {
+      setDamageClaimsLoading(false);
     }
   }, [token]);
 
@@ -450,6 +546,10 @@ export function HomeShell() {
   useEffect(() => {
     void refreshNotifications();
   }, [refreshNotifications]);
+
+  useEffect(() => {
+    void refreshDamageClaims();
+  }, [refreshDamageClaims]);
 
   useEffect(() => {
     if (!token) {
@@ -555,19 +655,21 @@ export function HomeShell() {
       Notifications.addNotificationReceivedListener(() => {
         void refreshNotifications();
         void refreshBookings();
+        void refreshDamageClaims();
       });
 
     const responseSubscription =
       Notifications.addNotificationResponseReceivedListener(() => {
         void refreshNotifications();
         void refreshBookings();
+        void refreshDamageClaims();
       });
 
     return () => {
       receivedSubscription.remove();
       responseSubscription.remove();
     };
-  }, [refreshBookings, refreshNotifications, token]);
+  }, [refreshBookings, refreshDamageClaims, refreshNotifications, token]);
 
   useEffect(() => {
     if (!token) {
@@ -582,20 +684,25 @@ export function HomeShell() {
     const handleNotificationsChanged = () => {
       void refreshNotifications();
     };
+    const handleClaimsChanged = () => {
+      void refreshDamageClaims();
+    };
     const handleConnectError = (error: Error) => {
       console.error("Socket connection failed:", error);
     };
 
     socket.on("bookings:changed", handleBookingsChanged);
     socket.on("notifications:changed", handleNotificationsChanged);
+    socket.on("claims:changed", handleClaimsChanged);
     socket.on("connect_error", handleConnectError);
 
     return () => {
       socket.off("bookings:changed", handleBookingsChanged);
       socket.off("notifications:changed", handleNotificationsChanged);
+      socket.off("claims:changed", handleClaimsChanged);
       socket.off("connect_error", handleConnectError);
     };
-  }, [refreshBookings, refreshNotifications, token]);
+  }, [refreshBookings, refreshDamageClaims, refreshNotifications, token]);
 
   const openTrip = (tripId: string) => {
     setSelectedTripId(tripId);
@@ -616,6 +723,15 @@ export function HomeShell() {
     hostTrips.find((trip) => trip.status === "Pending") ??
     hostTrips[0] ??
     mockTrips[1];
+  const pendingTripVehicle =
+    (pendingTripForReview.vehicleId
+      ? publicListings.find(
+          (vehicle) => vehicle.id === pendingTripForReview.vehicleId,
+        ) ??
+        hostListings.find(
+          (vehicle) => vehicle.id === pendingTripForReview.vehicleId,
+        )
+      : null) ?? null;
 
   const openChat = (chatId: string) => {
     const nextChat = chats.find((chat) => chat.id === chatId);
@@ -808,7 +924,7 @@ export function HomeShell() {
           vehicle={selectedBrowseVehicle}
           existingTrips={trips}
           user={currentUser}
-          pickupPoints={mockPickupPoints}
+          pickupPoints={getApprovedPickupPointsForListing(selectedBrowseVehicle)}
           onBack={() => setOverlay("browse-vehicle")}
           onSubmit={(booking) => {
             setTrips((current) => synchronizeTrips([booking.trip, ...current]));
@@ -912,7 +1028,16 @@ export function HomeShell() {
       body = (
         <BookingDetailScreen
           trip={selectedTrip}
-          pickupPoints={mockPickupPoints}
+          damageClaim={selectedTripDamageClaim}
+          canDisputeClaim={canUserDisputeDamageClaim(
+            selectedTripDamageClaim,
+            currentUser?.id,
+          )}
+          pickupPoints={
+            selectedTripVehicle
+              ? getApprovedPickupPointsForListing(selectedTripVehicle)
+              : mockPickupPoints
+          }
           selection={selectedPickup}
           onBack={() => setOverlay(null)}
           onOpenPickupPoints={() => setOverlay("pickup-points")}
@@ -935,7 +1060,11 @@ export function HomeShell() {
       body = (
         <BookingRequestScreen
           trip={pendingTripForReview}
-          pickupPoints={mockPickupPoints}
+          pickupPoints={
+            pendingTripVehicle
+              ? getApprovedPickupPointsForListing(pendingTripVehicle)
+              : mockPickupPoints
+          }
           onBack={() => setOverlay(null)}
           onApprove={async () => {
             const success = await applyTripStatusUpdate(
@@ -1020,7 +1149,11 @@ export function HomeShell() {
       body = (
         <PickupPointsScreen
           trip={selectedTrip}
-          pickupPoints={mockPickupPoints}
+          pickupPoints={
+            selectedTripVehicle
+              ? getApprovedPickupPointsForListing(selectedTripVehicle)
+              : mockPickupPoints
+          }
           selection={selectedPickup}
           onBack={() => setOverlay("booking-detail")}
           onSave={(nextSelection) => {
@@ -1036,11 +1169,50 @@ export function HomeShell() {
       break;
     case "damage-report":
       body = (
-        <DamageReportScreen
+        <DamageClaimScreen
           trip={selectedTrip}
+          claim={selectedTripDamageClaim}
+          currentUserId={currentUser?.id ?? null}
+          currentUserRole={currentUser?.role ?? null}
           onBack={() => setOverlay("booking-detail")}
-          onSubmit={() => {
+          onSubmitClaim={async ({ claimedAmount, description, photos }) => {
+            if (!token) {
+              throw new Error("Sign in again before submitting a damage claim.");
+            }
+
+            const response = await submitDamageClaim(
+              token,
+              {
+                bookingId: selectedTrip.id,
+                description,
+                claimedAmount,
+              },
+              photos,
+            );
+
+            setDamageClaims((current) =>
+              upsertDamageClaim(current, response.claim),
+            );
+            void refreshNotifications();
             setToast("Damage claim submitted");
+            setOverlay("booking-detail");
+          }}
+          onSubmitDispute={async (disputeReason) => {
+            if (!token || !selectedTripDamageClaim) {
+              throw new Error("This damage claim is not ready for dispute.");
+            }
+
+            const response = await disputeDamageClaim(
+              token,
+              selectedTripDamageClaim.id,
+              disputeReason,
+            );
+
+            setDamageClaims((current) =>
+              upsertDamageClaim(current, response.claim),
+            );
+            void refreshNotifications();
+            setToast("Damage dispute sent");
             setOverlay("booking-detail");
           }}
         />
@@ -1151,7 +1323,52 @@ export function HomeShell() {
       );
       break;
     case "admin-preview":
-      body = <AdminPreviewScreen onBack={() => setOverlay(null)} />;
+      body = (
+        <AdminPreviewScreen
+          onBack={() => setOverlay(null)}
+          openClaimCount={adminDamageClaims.length}
+          onOpenDamageClaims={() => setOverlay("admin-damage-claims")}
+        />
+      );
+      break;
+    case "admin-damage-claims":
+      body = (
+        <AdminDamageClaimsScreen
+          claims={damageClaims}
+          loading={damageClaimsLoading}
+          error={damageClaimsError}
+          isAdmin={currentUser?.role === "Admin"}
+          onBack={() => setOverlay("admin-preview")}
+          onReviewClaim={async (claimId, decision) => {
+            if (!token) {
+              throw new Error("Sign in again before reviewing damage claims.");
+            }
+
+            const response = await reviewDamageClaim(token, claimId, decision);
+            setDamageClaims((current) =>
+              upsertDamageClaim(current, response.claim),
+            );
+            void refreshNotifications();
+            setToast(
+              decision === "Approved"
+                ? "Damage claim approved"
+                : "Damage claim rejected",
+            );
+          }}
+          onTriggerCharge={async (claimId) => {
+            if (!token) {
+              throw new Error("Sign in again before recording a damage charge.");
+            }
+
+            const response = await triggerDamageClaimCharge(token, claimId);
+            setDamageClaims((current) =>
+              upsertDamageClaim(current, response.claim),
+            );
+            void refreshNotifications();
+            setToast("Damage charge recorded");
+          }}
+        />
+      );
       break;
     default:
       if (mode === "renter") {
@@ -1194,8 +1411,12 @@ export function HomeShell() {
           hostTrips.find(
             (trip) => trip.status === "Confirmed" || trip.status === "Active",
           ) ?? null;
+        const firstCompletedHostTrip =
+          hostTrips.find((trip) => trip.status === "Completed") ?? null;
+        const firstOpenHostClaim = openHostDamageClaims[0] ?? null;
         const firstHostClaimTrip =
-          hostTrips.find((trip) => trip.status === "Completed") ??
+          hostTrips.find((trip) => trip.id === firstOpenHostClaim?.bookingId) ??
+          firstCompletedHostTrip ??
           firstHostActiveTrip ??
           hostTrips[0] ??
           null;
@@ -1215,6 +1436,9 @@ export function HomeShell() {
           listings: hostListings,
           listingsLoading: hostListingsLoading,
           listingsError: hostListingsError,
+          damageClaimsCount: openHostDamageClaims.length,
+          damageClaimsLoading,
+          damageClaimsError,
           onOpenPersonalInfo: () => setOverlay("personal-information"),
           onOpenVehicleDetails: (vehicleId) => {
             setSelectedVehicleId(vehicleId);
@@ -1518,6 +1742,9 @@ function renderHostTab({
   listings,
   listingsLoading,
   listingsError,
+  damageClaimsCount,
+  damageClaimsLoading,
+  damageClaimsError,
   onOpenPersonalInfo,
   onOpenVehicleDetails,
   onCreateVehicle,
@@ -1543,6 +1770,9 @@ function renderHostTab({
   listings: VehicleListing[];
   listingsLoading: boolean;
   listingsError: string | null;
+  damageClaimsCount: number;
+  damageClaimsLoading: boolean;
+  damageClaimsError: string | null;
   onOpenPersonalInfo: () => void;
   onOpenVehicleDetails: (vehicleId: string | null) => void;
   onCreateVehicle: () => void;
@@ -1571,6 +1801,9 @@ function renderHostTab({
           listings={listings}
           listingsLoading={listingsLoading}
           listingsError={listingsError}
+          damageClaimsCount={damageClaimsCount}
+          damageClaimsLoading={damageClaimsLoading}
+          damageClaimsError={damageClaimsError}
           onOpenVehicleDetails={onOpenDraftListing}
           onOpenBookingRequest={onOpenBookingRequest}
           onOpenDamageClaim={onOpenDamageClaim}
@@ -1749,7 +1982,9 @@ function MessagesScreen({
                   color={palette.secondary}
                 />
                 <Text style={styles.chatWarningText}>
-                  Contact-sharing attempt flagged for moderation review.
+                  {chat.flaggedForReview
+                    ? "Repeated contact-sharing attempts flagged this thread for review."
+                    : "A contact-sharing attempt was blocked in this thread."}
                 </Text>
               </View>
             ) : null}
@@ -2824,9 +3059,16 @@ function VehicleBookingStartScreen({
     vehicle.location,
     vehicle.parishCode,
   );
+  const approvedPointIds = getApprovedPickupPointIdsForListing(vehicle);
+  const approvedPickupPoints =
+    pickupPoints.length > 0
+      ? pickupPoints
+      : mockPickupPoints.filter((point) => approvedPointIds.includes(point.id));
   const defaultPickupPoint =
-    pickupPoints.find((point) => point.parish === listingParish) ??
-    pickupPoints[0];
+    approvedPickupPoints.find((point) => point.parish === listingParish) ??
+    approvedPickupPoints[0] ??
+    getPickupPointById(approvedPointIds[0]) ??
+    mockPickupPoints[0];
   const [startDate, setStartDate] = useState(addDaysIso(TODAY_ISO, 7));
   const [endDate, setEndDate] = useState(addDaysIso(TODAY_ISO, 10));
   const [pickupId, setPickupId] = useState(defaultPickupPoint?.id ?? "");
@@ -2865,9 +3107,11 @@ function VehicleBookingStartScreen({
   const bookingDates = getBookingDates(startDate, endDate);
   const totalDays = bookingDates.length;
   const pickupPoint =
-    pickupPoints.find((point) => point.id === pickupId) ?? pickupPoints[0];
+    approvedPickupPoints.find((point) => point.id === pickupId) ??
+    defaultPickupPoint;
   const dropoffPoint =
-    pickupPoints.find((point) => point.id === dropoffId) ?? pickupPoints[0];
+    approvedPickupPoints.find((point) => point.id === dropoffId) ??
+    defaultPickupPoint;
   const listingYear = getListingYear(vehicle) || "2026";
   const rating = getListingRating(vehicle);
   const ratingCount = getListingRatingCount(vehicle);
@@ -2915,9 +3159,9 @@ function VehicleBookingStartScreen({
       ),
   };
   const displayLocation =
-    hasEditedPickupLocation && pickupPoint?.address && pickupPoint?.parish
-      ? `${pickupPoint.address}, ${pickupPoint.parish}`
-      : vehicle.location;
+    pickupPoint
+      ? getPickupPointRevealCopy(pickupPoint, false)
+      : getListingParish(vehicle.location, vehicle.parishCode);
   const renterName = [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
 
   useEffect(() => {
@@ -3193,11 +3437,11 @@ function VehicleBookingStartScreen({
             ) : null}
 
             <Text style={styles.checkoutEditorLabel}>Pickup point</Text>
-            {pickupPoints.map((point) => (
+            {approvedPickupPoints.map((point) => (
               <SelectionCard
                 key={`pickup-checkout-${point.id}`}
                 title={point.name}
-                subtitle={`${point.parish} · ${point.address}`}
+                subtitle={getPickupPointRevealCopy(point, false)}
                 note={point.note}
                 selected={pickupId === point.id}
                 onPress={() => {
@@ -3208,11 +3452,11 @@ function VehicleBookingStartScreen({
             ))}
 
             <Text style={styles.checkoutEditorLabel}>Drop-off point</Text>
-            {pickupPoints.map((point) => (
+            {approvedPickupPoints.map((point) => (
               <SelectionCard
                 key={`dropoff-checkout-${point.id}`}
                 title={point.name}
-                subtitle={`${point.parish} · ${point.address}`}
+                subtitle={getPickupPointRevealCopy(point, false)}
                 note={point.note}
                 selected={dropoffId === point.id}
                 onPress={() => {
@@ -3746,6 +3990,8 @@ function VehicleBookingStartScreen({
 
 function BookingDetailScreen({
   trip,
+  damageClaim,
+  canDisputeClaim,
   pickupPoints,
   selection,
   onBack,
@@ -3755,6 +4001,8 @@ function BookingDetailScreen({
   onOpenReview,
 }: {
   trip: MockTrip;
+  damageClaim?: DamageClaimRecord | null;
+  canDisputeClaim: boolean;
   pickupPoints: MockPickupPoint[];
   selection: PickupSelection;
   onBack: () => void;
@@ -3835,6 +4083,25 @@ function BookingDetailScreen({
         <SummaryRow label='Chat thread' value='Per booking' />
       </SectionCard>
 
+      {damageClaim ? (
+        <>
+          <SectionLabel title='DAMAGE CLAIM' />
+          <SectionCard>
+            <SummaryRow label='Status' value={damageClaim.status} />
+            <Divider />
+            <SummaryRow
+              label='Claim amount'
+              value={`JMD ${damageClaim.claimedAmount.toLocaleString()}`}
+            />
+            <Divider />
+            <SummaryRow
+              label='Dispute deadline'
+              value={formatBookingCardDate(damageClaim.disputeWindowEndsAt)}
+            />
+          </SectionCard>
+        </>
+      ) : null}
+
       <View style={styles.overlayActionStack}>
         <PrimaryAction label='Open booking chat' onPress={onOpenChat} />
         <SecondaryAction
@@ -3845,7 +4112,16 @@ function BookingDetailScreen({
           <SecondaryAction label='Leave a review' onPress={onOpenReview} />
         ) : null}
         {trip.canReportDamage ? (
-          <SecondaryAction label='Report damage' onPress={onOpenDamageReport} />
+          <SecondaryAction
+            label={
+              damageClaim
+                ? canDisputeClaim
+                  ? "Dispute damage claim"
+                  : "View damage claim"
+                : "Report damage"
+            }
+            onPress={onOpenDamageReport}
+          />
         ) : null}
       </View>
     </ScrollView>
@@ -3887,8 +4163,9 @@ function ChatThreadScreen({
               color={palette.secondary}
             />
             <Text style={styles.moderationBannerText}>
-              Phone numbers, emails, and social handles are blocked until a
-              booking is confirmed.
+              {chat.flaggedForReview
+                ? "Phone numbers, emails, and social handles are blocked in chat. Repeated attempts in this thread were flagged for review."
+                : "Phone numbers, emails, and social handles are blocked in chat. Please keep communication inside the app."}
             </Text>
           </View>
         ) : null}
@@ -4010,7 +4287,10 @@ function PickupPointsScreen({
         <SelectionCard
           key={`pickup-${point.id}`}
           title={point.name}
-          subtitle={`${point.parish} · ${point.address}`}
+          subtitle={getPickupPointRevealCopy(
+            point,
+            trip.status !== "Pending",
+          )}
           note={point.note}
           selected={pickupId === point.id}
           onPress={() => setPickupId(point.id)}
@@ -4022,7 +4302,10 @@ function PickupPointsScreen({
         <SelectionCard
           key={`drop-${point.id}`}
           title={point.name}
-          subtitle={`${point.parish} · ${point.address}`}
+          subtitle={getPickupPointRevealCopy(
+            point,
+            trip.status !== "Pending",
+          )}
           note={point.note}
           selected={dropoffId === point.id}
           onPress={() => setDropoffId(point.id)}
@@ -4034,91 +4317,6 @@ function PickupPointsScreen({
           label='Save pickup points'
           onPress={() => onSave({ pickupId, dropoffId })}
         />
-      </View>
-    </ScrollView>
-  );
-}
-
-function DamageReportScreen({
-  trip,
-  onBack,
-  onSubmit,
-}: {
-  trip: MockTrip;
-  onBack: () => void;
-  onSubmit: () => void;
-}) {
-  const [description, setDescription] = useState("");
-  const [amount, setAmount] = useState("");
-  const [photos, setPhotos] = useState([1, 2, 3]);
-
-  return (
-    <ScrollView
-      contentContainerStyle={styles.overlayScroll}
-      showsVerticalScrollIndicator={false}>
-      <OverlayHeader title='Report damage' onBack={onBack} />
-
-      <View style={styles.infoCard}>
-        <Ionicons
-          name='information-circle-outline'
-          size={18}
-          color={palette.secondary}
-        />
-        <Text style={styles.infoCardText}>
-          Post-rental claims include photos, description, claimed amount, renter
-          notification, admin review, and final charge approval.
-        </Text>
-      </View>
-
-      <SectionLabel title='TRIP' />
-      <SectionCard>
-        <SummaryRow label='Vehicle' value={trip.title} />
-        <Divider />
-        <SummaryRow
-          label='Window'
-          value={`${trip.startDate} to ${trip.endDate}`}
-        />
-      </SectionCard>
-
-      <InputField
-        label='Damage description'
-        value={description}
-        onChangeText={setDescription}
-        placeholder='Describe the issue, impact, and when it was discovered.'
-        icon='document-text-outline'
-      />
-
-      <InputField
-        label='Claimed amount (JMD)'
-        value={amount}
-        onChangeText={(value) => setAmount(onlyDigits(value))}
-        placeholder='e.g. 22000'
-        icon='cash-outline'
-        keyboardType='number-pad'
-      />
-
-      <SectionLabel title='PHOTO EVIDENCE' />
-      <View style={styles.photoGrid}>
-        {photos.map((item) => (
-          <View key={item} style={styles.photoTile}>
-            <Ionicons
-              name='image-outline'
-              size={20}
-              color={palette.onSurfaceVariant}
-            />
-            <Text style={styles.photoTileText}>Evidence {item}</Text>
-          </View>
-        ))}
-        <Pressable
-          style={styles.photoTileAdd}
-          onPress={() => setPhotos((items) => [...items, items.length + 1])}>
-          <Ionicons name='add' size={22} color={palette.primary} />
-          <Text style={styles.photoTileAddText}>Add photo</Text>
-        </Pressable>
-      </View>
-
-      <View style={styles.overlayActionStack}>
-        <PrimaryAction label='Submit claim' onPress={onSubmit} />
       </View>
     </ScrollView>
   );
@@ -4294,6 +4492,9 @@ function HostDashboardScreen({
   listings,
   listingsLoading,
   listingsError,
+  damageClaimsCount,
+  damageClaimsLoading,
+  damageClaimsError,
   onOpenVehicleDetails,
   onOpenBookingRequest,
   onOpenDamageClaim,
@@ -4309,6 +4510,9 @@ function HostDashboardScreen({
   listings: VehicleListing[];
   listingsLoading: boolean;
   listingsError: string | null;
+  damageClaimsCount: number;
+  damageClaimsLoading: boolean;
+  damageClaimsError: string | null;
   onOpenVehicleDetails: () => void;
   onOpenBookingRequest: () => void;
   onOpenDamageClaim: () => void;
@@ -4344,7 +4548,6 @@ function HostDashboardScreen({
     tone: "primary" | "warning" | "info";
     onPress: () => void;
   };
-  const damageClaimsCount = 0;
   const payoutQueueCount = 0;
   const hostPriorityTasks: HostPriorityTask[] = [
     pendingTrips.length
@@ -4367,9 +4570,9 @@ function HostDashboardScreen({
           id: "task-claim",
           title:
             damageClaimsCount === 1
-              ? "Review 1 damage claim"
-              : `Review ${damageClaimsCount} damage claims`,
-          detail: "Hosts have submitted post-trip damage issues for review.",
+              ? "Track 1 damage claim"
+              : `Track ${damageClaimsCount} damage claims`,
+          detail: "Post-trip claims are waiting on renter or admin follow-up.",
           tone: "warning" as const,
           onPress: onOpenDamageClaim,
         }
@@ -4459,6 +4662,12 @@ function HostDashboardScreen({
       {listingsError ? (
         <Text style={styles.errorText}>{listingsError}</Text>
       ) : null}
+      {damageClaimsError ? (
+        <Text style={styles.errorText}>{damageClaimsError}</Text>
+      ) : null}
+      {damageClaimsLoading ? (
+        <Text style={styles.helperText}>Loading damage claims...</Text>
+      ) : null}
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Today's priorities</Text>
@@ -4518,6 +4727,10 @@ function HostDashboardScreen({
         <PrimaryAction
           label='Review booking request'
           onPress={onOpenBookingRequest}
+        />
+        <SecondaryAction
+          label='Open damage claims'
+          onPress={onOpenDamageClaim}
         />
         <SecondaryAction
           label='Open payout management'
@@ -5042,6 +5255,16 @@ function VehicleDetailsScreen({
   const [pickupAddress, setPickupAddress] = useState(
     splitListingLocation(listing?.location).pickupAddress,
   );
+  const [offersKingstonAirport, setOffersKingstonAirport] = useState(
+    Boolean(
+      listing?.approvedPickupPointIds?.includes(
+        KINGSTON_AIRPORT_PICKUP_POINT_ID,
+      ),
+    ),
+  );
+  const [offersMbjAirport, setOffersMbjAirport] = useState(
+    Boolean(listing?.approvedPickupPointIds?.includes(MBJ_AIRPORT_PICKUP_POINT_ID)),
+  );
   const [description, setDescription] = useState(listing?.description ?? "");
   const [dailyRate, setDailyRate] = useState(
     listing?.dailyRate ? String(listing.dailyRate) : "",
@@ -5097,6 +5320,20 @@ function VehicleDetailsScreen({
         : nextLocation.parish,
     );
     setPickupAddress(nextLocation.pickupAddress);
+    setOffersKingstonAirport(
+      Boolean(
+        listing?.approvedPickupPointIds?.includes(
+          KINGSTON_AIRPORT_PICKUP_POINT_ID,
+        ),
+      ),
+    );
+    setOffersMbjAirport(
+      Boolean(
+        listing?.approvedPickupPointIds?.includes(
+          MBJ_AIRPORT_PICKUP_POINT_ID,
+        ),
+      ),
+    );
     setDescription(listing?.description ?? "");
     setDailyRate(listing?.dailyRate ? String(listing.dailyRate) : "");
     setWeeklyRate(listing?.weeklyRate ? String(listing.weeklyRate) : "");
@@ -5109,30 +5346,42 @@ function VehicleDetailsScreen({
 
   const buildPayload = (
     status: VehicleListing["status"],
-  ): VehicleListingPayload => ({
-    category,
-    make: make.trim(),
-    model: model.trim(),
-    color: color.trim(),
-    transmission,
-    fuelType,
-    seats: Number(seats || 0),
-    doors: Number(doors || 0),
-    mileage: Number(mileage || 0),
-    hasDailyLimit,
-    dailyMileageLimit: hasDailyLimit ? Number(dailyMileageLimit || 0) : null,
-    condition: condition ?? "excellent",
-    plate: plate.trim().toUpperCase(),
-    chassis: chassis.trim().toUpperCase(),
-    engine: engine.trim().toUpperCase(),
-    parishCode: getParishCodeFromLabel(parish),
-    location: formatListingLocation(parish, pickupAddress),
-    description: description.trim(),
-    dailyRate: Number(dailyRate || 0),
-    weeklyRate: Number(weeklyRate || 0),
-    status,
-    blockedDates,
-  });
+  ): VehicleListingPayload => {
+    const parishCode = getParishCodeFromLabel(parish);
+    const airportPointIds = [
+      offersKingstonAirport ? KINGSTON_AIRPORT_PICKUP_POINT_ID : null,
+      offersMbjAirport ? MBJ_AIRPORT_PICKUP_POINT_ID : null,
+    ].filter((pointId): pointId is string => Boolean(pointId));
+
+    return {
+      category,
+      make: make.trim(),
+      model: model.trim(),
+      color: color.trim(),
+      transmission,
+      fuelType,
+      seats: Number(seats || 0),
+      doors: Number(doors || 0),
+      mileage: Number(mileage || 0),
+      hasDailyLimit,
+      dailyMileageLimit: hasDailyLimit ? Number(dailyMileageLimit || 0) : null,
+      condition: condition ?? "excellent",
+      plate: plate.trim().toUpperCase(),
+      chassis: chassis.trim().toUpperCase(),
+      engine: engine.trim().toUpperCase(),
+      parishCode,
+      approvedPickupPointIds: [
+        ...getDefaultApprovedPickupPointIds(parishCode),
+        ...airportPointIds,
+      ],
+      location: formatListingLocation(parish, pickupAddress),
+      description: description.trim(),
+      dailyRate: Number(dailyRate || 0),
+      weeklyRate: Number(weeklyRate || 0),
+      status,
+      blockedDates,
+    };
+  };
 
   const validate = () => {
     if (
@@ -5223,6 +5472,8 @@ function VehicleDetailsScreen({
         ...response.vehicle,
         category: response.vehicle.category ?? payload.category,
         parishCode: response.vehicle.parishCode ?? payload.parishCode,
+        approvedPickupPointIds:
+          response.vehicle.approvedPickupPointIds ?? payload.approvedPickupPointIds,
       };
 
       if (queuedPhotos.length > 0) {
@@ -5409,6 +5660,34 @@ function VehicleDetailsScreen({
           onChangeText={setPickupAddress}
           placeholder='Street, district, or handoff address'
           icon='location-outline'
+        />
+
+        <View style={styles.infoCard}>
+          <Ionicons
+            name='location-outline'
+            size={18}
+            color={palette.primary}
+          />
+          <Text style={styles.infoCardText}>
+            The parish handoff point for {parish || "the selected parish"} is
+            included automatically. Turn on airport handoff only if you can
+            coordinate MBJ or Kingston pickups after the booking is approved.
+          </Text>
+        </View>
+
+        <ToggleRow
+          title='Offer Kingston airport pickup/drop-off'
+          subtitle='Norman Manley International Airport handoff'
+          value={offersKingstonAirport}
+          onValueChange={() =>
+            setOffersKingstonAirport((current) => !current)
+          }
+        />
+        <ToggleRow
+          title='Offer MBJ airport pickup/drop-off'
+          subtitle='Donald Sangster International Airport handoff'
+          value={offersMbjAirport}
+          onValueChange={() => setOffersMbjAirport((current) => !current)}
         />
 
         <View style={styles.vehicleChoiceStack}>
@@ -5992,7 +6271,15 @@ function PayoutsScreen({
   );
 }
 
-function AdminPreviewScreen({ onBack }: { onBack: () => void }) {
+function AdminPreviewScreen({
+  onBack,
+  openClaimCount,
+  onOpenDamageClaims,
+}: {
+  onBack: () => void;
+  openClaimCount: number;
+  onOpenDamageClaims: () => void;
+}) {
   const modules = [
     ["Dashboard", "Active bookings, revenue overview, flagged disputes"],
     ["Users", "View, suspend, or ban accounts"],
@@ -6015,6 +6302,15 @@ function AdminPreviewScreen({ onBack }: { onBack: () => void }) {
           modules so the product scope is visible inside the React Native shell.
         </Text>
       </View>
+
+      <Pressable style={styles.adminModuleCard} onPress={onOpenDamageClaims}>
+        <Text style={styles.adminModuleTitle}>Open damage claims</Text>
+        <Text style={styles.adminModuleSubtitle}>
+          {openClaimCount === 0
+            ? "No submitted, disputed, or uncharged approved claims right now."
+            : `${openClaimCount} claim${openClaimCount === 1 ? "" : "s"} need review or charge action.`}
+        </Text>
+      </Pressable>
 
       {modules.map(([title, subtitle]) => (
         <View key={title} style={styles.adminModuleCard}>
@@ -7101,6 +7397,10 @@ function mapBookingToChat(
     time: formatChatMessageTime(message.createdAt),
   }));
   const lastMessage = messages[messages.length - 1];
+  const blockedContactAttempts =
+    booking.moderation?.blockedContactAttempts
+    ?? booking.messages.filter((message) => message.kind === "blocked-contact").length;
+  const flaggedForReview = Boolean(booking.moderation?.flaggedForReview);
 
   return {
     id: getChatIdForTrip(booking.id),
@@ -7115,9 +7415,9 @@ function mapBookingToChat(
         booking.updatedAt ??
         booking.createdAt,
     ),
-    blockedAttempt: booking.messages.some(
-      (message) => message.kind === "blocked-contact",
-    ),
+    blockedAttempt: blockedContactAttempts > 0,
+    blockedContactAttempts,
+    flaggedForReview,
     messages,
   };
 }
@@ -7148,6 +7448,21 @@ function mapNotificationToMockNotification(
 
 function synchronizeTrips(trips: MockTrip[]) {
   return trips.map((trip) => synchronizeTripStatus(trip));
+}
+
+function upsertDamageClaim(
+  currentClaims: DamageClaimRecord[],
+  nextClaim: DamageClaimRecord,
+) {
+  const exists = currentClaims.some((claim) => claim.id === nextClaim.id);
+
+  if (!exists) {
+    return [nextClaim, ...currentClaims];
+  }
+
+  return currentClaims.map((claim) =>
+    claim.id === nextClaim.id ? nextClaim : claim,
+  );
 }
 
 function synchronizeTripStatus(trip: MockTrip) {

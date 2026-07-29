@@ -47,6 +47,8 @@ export type MockChat = {
   lastMessage: string;
   updatedAt: string;
   blockedAttempt: boolean;
+  blockedContactAttempts: number;
+  flaggedForReview: boolean;
   messages: MockChatMessage[];
 };
 
@@ -67,13 +69,7 @@ export type MockPayout = {
   reference?: string;
 };
 
-export type MockPickupPoint = {
-  id: string;
-  name: string;
-  parish: string;
-  address: string;
-  note: string;
-};
+export type MockPickupPoint = PickupPoint;
 
 export type MockHostTask = {
   id: string;
@@ -109,7 +105,7 @@ export const mockTrips: MockTrip[] = [
     ownerName: "Ashley Bennett",
     renterName: "Matthew Tingling",
     accent: "#21D8A0",
-    pickupPointId: "pickup-hwt",
+    pickupPointId: "pickup-kin-hwt",
     dropoffPointId: "pickup-airport-mbj",
     notes: "Pickup confirmation unlocks exact handoff details in chat.",
   },
@@ -129,8 +125,8 @@ export const mockTrips: MockTrip[] = [
     ownerName: "Simone Grant",
     renterName: "Matthew Tingling",
     accent: "#5EA1FF",
-    pickupPointId: "pickup-mobay",
-    dropoffPointId: "pickup-mobay",
+    pickupPointId: "pickup-sjm-fairview",
+    dropoffPointId: "pickup-sjm-fairview",
     notes: "Owner approval is still pending. Chat stays open during review.",
   },
   {
@@ -149,8 +145,8 @@ export const mockTrips: MockTrip[] = [
     ownerName: "Devon Wallace",
     renterName: "Matthew Tingling",
     accent: "#F6B325",
-    pickupPointId: "pickup-ochi",
-    dropoffPointId: "pickup-ochi",
+    pickupPointId: "pickup-san-ochi",
+    dropoffPointId: "pickup-san-ochi",
     notes: "This trip is complete and eligible for rating and post-trip claims.",
     canReview: true,
     canReportDamage: true,
@@ -168,6 +164,8 @@ export const mockChats: MockChat[] = [
     lastMessage: "Pickup will be at the approved Half-Way Tree point.",
     updatedAt: "12m ago",
     blockedAttempt: false,
+    blockedContactAttempts: 0,
+    flaggedForReview: false,
     messages: [
       {
         id: "m1",
@@ -199,6 +197,8 @@ export const mockChats: MockChat[] = [
     lastMessage: "Your contact-sharing attempt was blocked automatically.",
     updatedAt: "1h ago",
     blockedAttempt: true,
+    blockedContactAttempts: 1,
+    flaggedForReview: false,
     messages: [
       {
         id: "m4",
@@ -280,36 +280,7 @@ export const mockPayouts: MockPayout[] = [
   },
 ];
 
-export const mockPickupPoints: MockPickupPoint[] = [
-  {
-    id: "pickup-hwt",
-    name: "Half-Way Tree Hub",
-    parish: "Kingston",
-    address: "Shop 12, Transport Centre, Half-Way Tree",
-    note: "Shared after confirmation only. Staffed handoff window 8AM to 7PM.",
-  },
-  {
-    id: "pickup-airport-mbj",
-    name: "MBJ Airport Lot C",
-    parish: "St. James",
-    address: "Donald Sangster Airport, Montego Bay",
-    note: "Airport pickup surcharge already included in booking total.",
-  },
-  {
-    id: "pickup-mobay",
-    name: "Fairview Pickup Point",
-    parish: "St. James",
-    address: "Fairview Shopping Centre, Montego Bay",
-    note: "Owner confirms exact bay after trip approval.",
-  },
-  {
-    id: "pickup-ochi",
-    name: "Island Village Pickup Point",
-    parish: "St. Ann",
-    address: "Island Village Plaza, Ocho Rios",
-    note: "Photo ID check required at handoff.",
-  },
-];
+export const mockPickupPoints: MockPickupPoint[] = approvedPickupPointsCatalog;
 
 export const mockHostTasks: MockHostTask[] = [
   {
@@ -369,3 +340,7 @@ export const reviewTagOptions = [
   "Accurate listing",
   "Would rent again",
 ];
+import {
+  approvedPickupPointsCatalog,
+  PickupPoint,
+} from "./pickupPoints";
