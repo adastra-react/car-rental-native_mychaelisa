@@ -171,6 +171,15 @@ export const approvedPickupPointsCatalog: PickupPoint[] = [
   },
 ];
 
+export function hydratePickupPointsCatalog(points: PickupPoint[]) {
+  if (!Array.isArray(points) || !points.length) {
+    return;
+  }
+
+  approvedPickupPointsCatalog.length = 0;
+  approvedPickupPointsCatalog.push(...points);
+}
+
 export function getPickupPointById(pointId?: string | null) {
   return (
     approvedPickupPointsCatalog.find((point) => point.id === pointId) ?? null

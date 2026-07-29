@@ -46,6 +46,9 @@ import {
   sendTestNotification,
   unregisterPushToken as unregisterPushTokenOnServer,
 } from "../services/notifications";
+import { fetchMyPayouts, requestPayout } from "../services/payouts";
+import { fetchPickupPoints } from "../services/pickupPoints";
+import { fetchVehicleReviews, submitReview } from "../services/reviews";
 import {
   Notifications,
   scheduleLocalDemoNotificationAsync,
@@ -56,10 +59,8 @@ import {
   MockListing,
   MockNotification,
   MockPickupPoint,
-  MockPayout,
   MockTrip,
   mockListings,
-  mockPayouts,
   mockPickupPoints,
   mockTrips,
   reviewTagOptions,
@@ -71,6 +72,7 @@ import {
   getDefaultApprovedPickupPointIds,
   getPickupPointById,
   getPickupPointRevealCopy,
+  hydratePickupPointsCatalog,
   KINGSTON_AIRPORT_PICKUP_POINT_ID,
   MBJ_AIRPORT_PICKUP_POINT_ID,
 } from "../data/pickupPoints";
@@ -94,6 +96,8 @@ import {
 import { BookingRecord } from "../types/booking";
 import { DamageClaimRecord } from "../types/damageClaim";
 import { AppNotificationRecord } from "../types/notification";
+import { PayoutBalance, PayoutRequestRecord } from "../types/payout";
+import { ReviewRecord } from "../types/review";
 import {
   ParishCode,
   VehicleCategory,
@@ -145,6 +149,7 @@ type OverlayScreen =
   | "booking-request"
   | "chat-thread"
   | "pickup-points"
+  | "pickup-point-network"
   | "damage-report"
   | "review"
   | "payouts"
@@ -204,6 +209,14 @@ export function HomeShell() {
   const [damageClaimsError, setDamageClaimsError] = useState<string | null>(
     null,
   );
+  const [payouts, setPayouts] = useState<PayoutRequestRecord[]>([]);
+  const [payoutsBalance, setPayoutsBalance] = useState<PayoutBalance>({
+    availableBalance: 0,
+    lifetimeEarned: 0,
+    lifetimePaidOut: 0,
+  });
+  const [payoutsLoading, setPayoutsLoading] = useState(false);
+  const [payoutsError, setPayoutsError] = useState<string | null>(null);
   const [chats, setChats] = useState<MockChat[]>([]);
   const [registeredPushToken, setRegisteredPushToken] = useState<string | null>(
     null,
@@ -449,6 +462,37 @@ export function HomeShell() {
     }
   }, [token]);
 
+  const refreshPayouts = useCallback(async () => {
+    if (!token) {
+      setPayouts([]);
+      setPayoutsBalance({ availableBalance: 0, lifetimeEarned: 0, lifetimePaidOut: 0 });
+      setPayoutsError(null);
+      setPayoutsLoading(false);
+      return;
+    }
+
+    setPayoutsLoading(true);
+
+    try {
+      const response = await fetchMyPayouts(token);
+      setPayouts(response.payouts);
+      setPayoutsBalance({
+        availableBalance: response.availableBalance,
+        lifetimeEarned: response.lifetimeEarned,
+        lifetimePaidOut: response.lifetimePaidOut,
+      });
+      setPayoutsError(null);
+    } catch (error) {
+      setPayoutsError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load payouts right now.",
+      );
+    } finally {
+      setPayoutsLoading(false);
+    }
+  }, [token]);
+
   useEffect(() => {
     if (!toast) {
       return;
@@ -550,6 +594,28 @@ export function HomeShell() {
   useEffect(() => {
     void refreshDamageClaims();
   }, [refreshDamageClaims]);
+
+  useEffect(() => {
+    void refreshPayouts();
+  }, [refreshPayouts]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    fetchPickupPoints()
+      .then((points) => {
+        if (isMounted) {
+          hydratePickupPointsCatalog(points);
+        }
+      })
+      .catch((error) => {
+        console.error("Unable to refresh pickup points from the server:", error);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -656,6 +722,7 @@ export function HomeShell() {
         void refreshNotifications();
         void refreshBookings();
         void refreshDamageClaims();
+        void refreshPayouts();
       });
 
     const responseSubscription =
@@ -663,13 +730,14 @@ export function HomeShell() {
         void refreshNotifications();
         void refreshBookings();
         void refreshDamageClaims();
+        void refreshPayouts();
       });
 
     return () => {
       receivedSubscription.remove();
       responseSubscription.remove();
     };
-  }, [refreshBookings, refreshDamageClaims, refreshNotifications, token]);
+  }, [refreshBookings, refreshDamageClaims, refreshNotifications, refreshPayouts, token]);
 
   useEffect(() => {
     if (!token) {
@@ -687,6 +755,12 @@ export function HomeShell() {
     const handleClaimsChanged = () => {
       void refreshDamageClaims();
     };
+    const handleReviewsChanged = () => {
+      void refreshBookings();
+    };
+    const handlePayoutsChanged = () => {
+      void refreshPayouts();
+    };
     const handleConnectError = (error: Error) => {
       console.error("Socket connection failed:", error);
     };
@@ -694,15 +768,19 @@ export function HomeShell() {
     socket.on("bookings:changed", handleBookingsChanged);
     socket.on("notifications:changed", handleNotificationsChanged);
     socket.on("claims:changed", handleClaimsChanged);
+    socket.on("reviews:changed", handleReviewsChanged);
+    socket.on("payouts:changed", handlePayoutsChanged);
     socket.on("connect_error", handleConnectError);
 
     return () => {
       socket.off("bookings:changed", handleBookingsChanged);
       socket.off("notifications:changed", handleNotificationsChanged);
       socket.off("claims:changed", handleClaimsChanged);
+      socket.off("reviews:changed", handleReviewsChanged);
+      socket.off("payouts:changed", handlePayoutsChanged);
       socket.off("connect_error", handleConnectError);
     };
-  }, [refreshBookings, refreshDamageClaims, refreshNotifications, token]);
+  }, [refreshBookings, refreshDamageClaims, refreshNotifications, refreshPayouts, token]);
 
   const openTrip = (tripId: string) => {
     setSelectedTripId(tripId);
@@ -1167,6 +1245,9 @@ export function HomeShell() {
         />
       );
       break;
+    case "pickup-point-network":
+      body = <PickupPointNetworkScreen onBack={() => setOverlay(null)} />;
+      break;
     case "damage-report":
       body = (
         <DamageClaimScreen
@@ -1223,8 +1304,14 @@ export function HomeShell() {
         <ReviewScreen
           trip={selectedTrip}
           onBack={() => setOverlay("booking-detail")}
-          onSubmit={() => {
-            setToast("Review saved locally");
+          onSubmit={async ({ rating, comment, tags }) => {
+            if (!token) {
+              throw new Error("Sign in again before submitting a review.");
+            }
+            await submitReview(token, selectedTrip.id, { rating, comment, tags });
+            void refreshBookings();
+            void refreshNotifications();
+            setToast("Review submitted");
             setOverlay("booking-detail");
           }}
         />
@@ -1233,9 +1320,20 @@ export function HomeShell() {
     case "payouts":
       body = (
         <PayoutsScreen
-          payouts={mockPayouts}
+          payouts={payouts}
+          balance={payoutsBalance}
+          isLoading={payoutsLoading}
+          errorText={payoutsError}
           onBack={() => setOverlay(null)}
-          onRequest={() => setToast("Payout request submitted")}
+          onRequest={async (amount) => {
+            if (!token) {
+              throw new Error("Sign in again before requesting a payout.");
+            }
+            await requestPayout(token, amount);
+            void refreshPayouts();
+            void refreshNotifications();
+            setToast("Payout request submitted");
+          }}
         />
       );
       break;
@@ -1439,6 +1537,8 @@ export function HomeShell() {
           damageClaimsCount: openHostDamageClaims.length,
           damageClaimsLoading,
           damageClaimsError,
+          payoutQueueCount: payouts.filter((payout) => payout.status === "Pending")
+            .length,
           onOpenPersonalInfo: () => setOverlay("personal-information"),
           onOpenVehicleDetails: (vehicleId) => {
             setSelectedVehicleId(vehicleId);
@@ -1558,6 +1658,7 @@ export function HomeShell() {
             setSelectedVehicleId(firstBlockedDatesListing.id);
             setOverlay("vehicle-details");
           },
+          onOpenPickupPointNetwork: () => setOverlay("pickup-point-network"),
           onLogout: () => {
             void handleLogout();
           },
@@ -1745,6 +1846,7 @@ function renderHostTab({
   damageClaimsCount,
   damageClaimsLoading,
   damageClaimsError,
+  payoutQueueCount,
   onOpenPersonalInfo,
   onOpenVehicleDetails,
   onCreateVehicle,
@@ -1757,6 +1859,7 @@ function renderHostTab({
   onOpenActiveBooking,
   onOpenDraftListing,
   onOpenBlockedDates,
+  onOpenPickupPointNetwork,
   onLogout,
   onOpenChat,
   onOpenTrip,
@@ -1773,6 +1876,7 @@ function renderHostTab({
   damageClaimsCount: number;
   damageClaimsLoading: boolean;
   damageClaimsError: string | null;
+  payoutQueueCount: number;
   onOpenPersonalInfo: () => void;
   onOpenVehicleDetails: (vehicleId: string | null) => void;
   onCreateVehicle: () => void;
@@ -1788,6 +1892,7 @@ function renderHostTab({
   onOpenActiveBooking: () => void;
   onOpenDraftListing: () => void;
   onOpenBlockedDates: () => void;
+  onOpenPickupPointNetwork: () => void;
   onLogout: () => void;
   onOpenChat: (chatId: string) => void;
   onOpenTrip: (tripId: string) => void;
@@ -1804,6 +1909,7 @@ function renderHostTab({
           damageClaimsCount={damageClaimsCount}
           damageClaimsLoading={damageClaimsLoading}
           damageClaimsError={damageClaimsError}
+          payoutQueueCount={payoutQueueCount}
           onOpenVehicleDetails={onOpenDraftListing}
           onOpenBookingRequest={onOpenBookingRequest}
           onOpenDamageClaim={onOpenDamageClaim}
@@ -1844,10 +1950,14 @@ function renderHostTab({
         <HostProfileScreen
           unreadNotifications={unreadNotifications}
           user={user}
+          payoutQueueCount={payoutQueueCount}
+          damageClaimsCount={damageClaimsCount}
           onOpenPersonalInfo={onOpenPersonalInfo}
           onOpenPayouts={onOpenPayouts}
           onOpenNotifications={onOpenNotifications}
           onOpenAdminPreview={onOpenAdminPreview}
+          onOpenDamageClaim={onOpenDamageClaim}
+          onOpenPickupPointNetwork={onOpenPickupPointNetwork}
           onLogout={onLogout}
         />
       );
@@ -2472,27 +2582,34 @@ function BrowseVehicleDetailScreen({
     vehicle.hasDailyLimit && vehicle.dailyMileageLimit
       ? `${vehicle.dailyMileageLimit.toLocaleString()} km per day`
       : "Unlimited kilometres";
-  const hostTripCount = Math.max(ratingCount * 2, 12);
-  const reviewCards = [
-    {
-      id: "review-1",
-      author: "Efrain",
-      date: "Jul 7, 2026",
-      body: "Pickup was smooth and the vehicle looked exactly like the photos.",
-    },
-    {
-      id: "review-2",
-      author: "Malia",
-      date: "Jun 19, 2026",
-      body: "Super clean ride, clear instructions, and a very responsive host.",
-    },
-    {
-      id: "review-3",
-      author: "Jordan",
-      date: "May 30, 2026",
-      body: "Would absolutely book this one again for another weekend trip.",
-    },
-  ];
+  const [reviews, setReviews] = useState<ReviewRecord[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+    setReviewsLoading(true);
+
+    fetchVehicleReviews(vehicle.id)
+      .then((response) => {
+        if (isMounted) {
+          setReviews(response.reviews);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setReviews([]);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setReviewsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [vehicle.id]);
   const featureGroups = [
     {
       title: "Vehicle features",
@@ -2635,12 +2752,18 @@ function BrowseVehicleDetailScreen({
             <View style={styles.vehicleDetailSummaryMetaRow}>
               <View style={styles.vehicleDetailSummaryRatingWrap}>
                 <Text style={styles.vehicleDetailMetaLine}>
-                  {rating.toFixed(1)}{" "}
-                  <Text
-                    style={[styles.vehicleDetailMetaLine, { color: detailAccent }]}>
-                    ★
-                  </Text>{" "}
-                  ({ratingCount} trips)
+                  {ratingCount > 0 ? (
+                    <>
+                      {rating.toFixed(1)}{" "}
+                      <Text
+                        style={[styles.vehicleDetailMetaLine, { color: detailAccent }]}>
+                        ★
+                      </Text>{" "}
+                      ({ratingCount} trips)
+                    </>
+                  ) : (
+                    "New listing"
+                  )}
                 </Text>
               </View>
               <View style={styles.vehicleDetailHostBadgeWrap}>
@@ -2816,58 +2939,45 @@ function BrowseVehicleDetailScreen({
 
           <View style={styles.vehicleDetailSection}>
             <Text style={styles.vehicleDetailSectionTitle}>Ratings and reviews</Text>
-            <Text style={styles.vehicleDetailReviewSummary}>
-              {rating.toFixed(1)} <Text style={{ color: detailAccent }}>★</Text> (
-              {ratingCount} ratings)
-            </Text>
-            <View style={styles.vehicleDetailRatingsWrap}>
-              {[
-                "Cleanliness",
-                "Maintenance",
-                "Communication",
-                "Convenience",
-                "Accuracy",
-              ].map((metric) => (
-                <View key={metric} style={styles.vehicleDetailRatingRow}>
-                  <Text style={styles.vehicleDetailRatingLabel}>{metric}</Text>
-                  <View style={styles.vehicleDetailRatingBar}>
-                    <View
-                      style={[
-                        styles.vehicleDetailRatingFill,
-                        { backgroundColor: detailAccent },
-                      ]}
-                    />
+            {ratingCount > 0 ? (
+              <Text style={styles.vehicleDetailReviewSummary}>
+                {rating.toFixed(1)} <Text style={{ color: detailAccent }}>★</Text> (
+                {ratingCount} ratings)
+              </Text>
+            ) : (
+              <Text style={styles.vehicleDetailReviewSummary}>
+                No ratings yet — be the first to review this vehicle.
+              </Text>
+            )}
+            {reviewsLoading ? (
+              <ActivityIndicator color={detailAccent} style={{ marginTop: spacing.sm }} />
+            ) : reviews.length ? (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.vehicleDetailReviewRail}>
+                {reviews.map((review) => (
+                  <View key={review.id} style={styles.vehicleDetailReviewCard}>
+                    <View style={styles.vehicleDetailReviewStars}>
+                      {Array.from({ length: review.rating }).map((_, index) => (
+                        <Ionicons
+                          key={`${review.id}-${index}`}
+                          name='star'
+                          size={17}
+                          color={detailAccent}
+                        />
+                      ))}
+                    </View>
+                    <Text style={styles.vehicleDetailReviewMeta}>
+                      {review.reviewerName || "Renter"}
+                    </Text>
+                    {review.comment ? (
+                      <Text style={styles.vehicleDetailReviewText}>{review.comment}</Text>
+                    ) : null}
                   </View>
-                  <Text style={styles.vehicleDetailRatingValue}>5.0</Text>
-                </View>
-              ))}
-            </View>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.vehicleDetailReviewRail}>
-              {reviewCards.map((review) => (
-                <View key={review.id} style={styles.vehicleDetailReviewCard}>
-                  <View style={styles.vehicleDetailReviewStars}>
-                    {Array.from({ length: 5 }).map((_, index) => (
-                      <Ionicons
-                        key={`${review.id}-${index}`}
-                        name='star'
-                        size={17}
-                        color={detailAccent}
-                      />
-                    ))}
-                  </View>
-                  <Text style={styles.vehicleDetailReviewMeta}>
-                    {review.author} · {review.date}
-                  </Text>
-                  <Text style={styles.vehicleDetailReviewText}>{review.body}</Text>
-                </View>
-              ))}
-            </ScrollView>
-            <Pressable style={styles.vehicleDetailGhostButton}>
-              <Text style={styles.vehicleDetailGhostButtonText}>View all</Text>
-            </Pressable>
+                ))}
+              </ScrollView>
+            ) : null}
           </View>
 
           <View style={styles.vehicleDetailSection}>
@@ -2883,9 +2993,10 @@ function BrowseVehicleDetailScreen({
                   {vehicle.ownerName?.trim() || "Vehicle host"}
                 </Text>
                 <Text style={styles.vehicleDetailHostMeta}>
-                  {hostTripCount} trips · Joined Jun 2024
+                  {vehicle.ownerReviewCount
+                    ? `${(vehicle.ownerAverageRating ?? 0).toFixed(1)} ★ host rating (${vehicle.ownerReviewCount} reviews)`
+                    : "New host"}
                 </Text>
-                <Text style={styles.vehicleDetailHostMeta}>All-Star Host</Text>
               </View>
             </View>
           </View>
@@ -3316,7 +3427,8 @@ function VehicleBookingStartScreen({
                 {getListingTitle(vehicle)}
               </Text>
               <Text style={styles.checkoutVehicleMeta}>
-                {listingYear} • {rating.toFixed(1)} ★ ({ratingCount} trips)
+                {listingYear}
+                {ratingCount > 0 ? ` • ${rating.toFixed(1)} ★ (${ratingCount} trips)` : ""}
               </Text>
             </View>
 
@@ -4322,6 +4434,46 @@ function PickupPointsScreen({
   );
 }
 
+function PickupPointNetworkScreen({ onBack }: { onBack: () => void }) {
+  const pointsByParish = useMemo(() => {
+    const grouped = new Map<string, MockPickupPoint[]>();
+    mockPickupPoints.forEach((point) => {
+      const existing = grouped.get(point.parish) ?? [];
+      grouped.set(point.parish, [...existing, point]);
+    });
+    return [...grouped.entries()];
+  }, []);
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.overlayScroll}
+      showsVerticalScrollIndicator={false}>
+      <OverlayHeader title='Pickup point network' onBack={onBack} />
+
+      <Text style={styles.overlayLead}>
+        Admin-defined handoff locations across Jamaica. Renters choose from
+        this network at booking.
+      </Text>
+
+      {pointsByParish.map(([parish, points]) => (
+        <View key={parish}>
+          <SectionLabel title={parish.toUpperCase()} />
+          {points.map((point) => (
+            <SelectionCard
+              key={point.id}
+              title={point.name}
+              subtitle={point.address}
+              note={point.note}
+              selected={false}
+              onPress={() => {}}
+            />
+          ))}
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
 function ReviewScreen({
   trip,
   onBack,
@@ -4329,13 +4481,37 @@ function ReviewScreen({
 }: {
   trip: MockTrip;
   onBack: () => void;
-  onSubmit: () => void;
+  onSubmit: (payload: {
+    rating: number;
+    comment: string;
+    tags: string[];
+  }) => Promise<void> | void;
 }) {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
   const [selectedTags, setSelectedTags] = useState<string[]>([
     reviewTagOptions[0],
   ]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorText(null);
+
+    try {
+      await onSubmit({ rating, comment, tags: selectedTags });
+    } catch (error) {
+      setErrorText(
+        error instanceof Error ? error.message : "Unable to submit review right now.",
+      );
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <ScrollView
@@ -4402,8 +4578,13 @@ function ReviewScreen({
         icon='create-outline'
       />
 
+      {errorText ? <Text style={styles.errorText}>{errorText}</Text> : null}
+
       <View style={styles.overlayActionStack}>
-        <PrimaryAction label='Submit review' onPress={onSubmit} />
+        <PrimaryAction
+          label={isSubmitting ? "Submitting..." : "Submit review"}
+          onPress={handleSubmit}
+        />
       </View>
     </ScrollView>
   );
@@ -4495,6 +4676,7 @@ function HostDashboardScreen({
   damageClaimsCount,
   damageClaimsLoading,
   damageClaimsError,
+  payoutQueueCount,
   onOpenVehicleDetails,
   onOpenBookingRequest,
   onOpenDamageClaim,
@@ -4513,6 +4695,7 @@ function HostDashboardScreen({
   damageClaimsCount: number;
   damageClaimsLoading: boolean;
   damageClaimsError: string | null;
+  payoutQueueCount: number;
   onOpenVehicleDetails: () => void;
   onOpenBookingRequest: () => void;
   onOpenDamageClaim: () => void;
@@ -4548,7 +4731,6 @@ function HostDashboardScreen({
     tone: "primary" | "warning" | "info";
     onPress: () => void;
   };
-  const payoutQueueCount = 0;
   const hostPriorityTasks: HostPriorityTask[] = [
     pendingTrips.length
       ? {
@@ -4924,18 +5106,26 @@ function HostCalendarScreen({
 function HostProfileScreen({
   unreadNotifications,
   user,
+  payoutQueueCount,
+  damageClaimsCount,
   onOpenPersonalInfo,
   onOpenPayouts,
   onOpenNotifications,
   onOpenAdminPreview,
+  onOpenDamageClaim,
+  onOpenPickupPointNetwork,
   onLogout,
 }: {
   unreadNotifications: number;
   user: AuthUser | null;
+  payoutQueueCount: number;
+  damageClaimsCount: number;
   onOpenPersonalInfo: () => void;
   onOpenPayouts: () => void;
   onOpenNotifications: () => void;
   onOpenAdminPreview: () => void;
+  onOpenDamageClaim: () => void;
+  onOpenPickupPointNetwork: () => void;
   onLogout: () => void;
 }) {
   const profileName = user?.name?.trim() || "Your account";
@@ -4983,7 +5173,11 @@ function HostProfileScreen({
         <SettingsRow
           icon='wallet-outline'
           title='Payout management'
-          value='3 requests pending'
+          value={
+            payoutQueueCount > 0
+              ? `${payoutQueueCount} requests pending`
+              : "No requests pending"
+          }
           onPress={onOpenPayouts}
         />
         <Divider />
@@ -5009,21 +5203,17 @@ function HostProfileScreen({
       <SectionLabel title='OPERATIONS' />
       <SectionCard>
         <SettingsRow
-          icon='car-outline'
-          title='Listing management'
-          value='Approve, suspend, remove'
-        />
-        <Divider />
-        <SettingsRow
           icon='alert-circle-outline'
           title='Damage disputes'
-          value='Admin review and charge trigger'
+          value={damageClaimsCount > 0 ? `${damageClaimsCount} open` : "None open"}
+          onPress={onOpenDamageClaim}
         />
         <Divider />
         <SettingsRow
           icon='pin-outline'
           title='Pickup point network'
           value='Managed across Jamaica'
+          onPress={onOpenPickupPointNetwork}
         />
       </SectionCard>
     </ScrollView>
@@ -6220,13 +6410,53 @@ function BookingRequestScreen({
 
 function PayoutsScreen({
   payouts,
+  balance,
+  isLoading,
+  errorText,
   onBack,
   onRequest,
 }: {
-  payouts: MockPayout[];
+  payouts: PayoutRequestRecord[];
+  balance: PayoutBalance;
+  isLoading: boolean;
+  errorText: string | null;
   onBack: () => void;
-  onRequest: () => void;
+  onRequest: (amount: number) => Promise<void> | void;
 }) {
+  const [amountText, setAmountText] = useState(String(balance.availableBalance));
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [requestErrorText, setRequestErrorText] = useState<string | null>(null);
+
+  useEffect(() => {
+    setAmountText(String(balance.availableBalance));
+  }, [balance.availableBalance]);
+
+  const handleRequest = async () => {
+    const amount = Number(amountText);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setRequestErrorText("Enter a valid payout amount.");
+      return;
+    }
+
+    if (isSubmitting) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setRequestErrorText(null);
+
+    try {
+      await onRequest(amount);
+    } catch (error) {
+      setRequestErrorText(
+        error instanceof Error ? error.message : "Unable to request a payout right now.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <ScrollView
       contentContainerStyle={styles.overlayScroll}
@@ -6235,12 +6465,32 @@ function PayoutsScreen({
 
       <View style={styles.balanceCard}>
         <Text style={styles.balanceLabel}>Available now</Text>
-        <Text style={styles.balanceValue}>JMD 84,200</Text>
+        <Text style={styles.balanceValue}>
+          JMD {balance.availableBalance.toLocaleString()}
+        </Text>
         <View style={styles.balanceStatsRow}>
-          <BalanceStat label='Lifetime earned' value='JMD 411,300' />
-          <BalanceStat label='Paid out' value='JMD 327,100' />
+          <BalanceStat
+            label='Lifetime earned'
+            value={`JMD ${balance.lifetimeEarned.toLocaleString()}`}
+          />
+          <BalanceStat
+            label='Paid out'
+            value={`JMD ${balance.lifetimePaidOut.toLocaleString()}`}
+          />
         </View>
-        <PrimaryAction label='Request payout' onPress={onRequest} />
+        <InputField
+          label='Payout amount (JMD)'
+          value={amountText}
+          onChangeText={setAmountText}
+          placeholder='0'
+          icon='cash-outline'
+          keyboardType='number-pad'
+        />
+        {requestErrorText ? <Text style={styles.errorText}>{requestErrorText}</Text> : null}
+        <PrimaryAction
+          label={isSubmitting ? "Submitting..." : "Request payout"}
+          onPress={handleRequest}
+        />
         <Text style={styles.balanceHint}>
           Owners submit payout requests in-app. Admin reviews and processes them
           manually with a transfer reference.
@@ -6248,25 +6498,33 @@ function PayoutsScreen({
       </View>
 
       <SectionLabel title='HISTORY' />
-      {payouts.map((payout) => (
-        <View key={payout.id} style={styles.payoutCard}>
-          <View style={styles.payoutBody}>
-            <Text style={styles.payoutAmount}>
-              JMD {payout.amount.toLocaleString()}
-            </Text>
-            <Text style={styles.payoutDate}>{payout.requestedAt}</Text>
-            {payout.reference ? (
-              <Text style={styles.payoutReference}>
-                Reference: {payout.reference}
+      {isLoading ? (
+        <ActivityIndicator color={palette.primary} style={{ marginTop: spacing.md }} />
+      ) : errorText ? (
+        <Text style={styles.errorText}>{errorText}</Text>
+      ) : payouts.length ? (
+        payouts.map((payout) => (
+          <View key={payout.id} style={styles.payoutCard}>
+            <View style={styles.payoutBody}>
+              <Text style={styles.payoutAmount}>
+                JMD {payout.amount.toLocaleString()}
               </Text>
-            ) : null}
+              <Text style={styles.payoutDate}>{formatUserDate(payout.requestedAt)}</Text>
+              {payout.referenceNote ? (
+                <Text style={styles.payoutReference}>
+                  Reference: {payout.referenceNote}
+                </Text>
+              ) : null}
+            </View>
+            <StatusChip
+              label={payout.status}
+              tone={payout.status === "Processed" ? "success" : "warning"}
+            />
           </View>
-          <StatusChip
-            label={payout.status}
-            tone={payout.status === "Processed" ? "success" : "warning"}
-          />
-        </View>
-      ))}
+        ))
+      ) : (
+        <Text style={styles.balanceHint}>No payout requests yet.</Text>
+      )}
     </ScrollView>
   );
 }
@@ -7365,7 +7623,7 @@ function mapBookingToTrip(booking: BookingRecord): MockTrip {
     pickupPointId: booking.pickupPointId,
     dropoffPointId: booking.dropoffPointId,
     notes: booking.notes,
-    canReview: booking.status === "Completed",
+    canReview: booking.status === "Completed" && !booking.reviewedByMe,
     canReportDamage: booking.status === "Completed",
   };
 }

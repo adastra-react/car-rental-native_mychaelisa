@@ -43,6 +43,7 @@ export type BookingRecord = {
   notes: string;
   messages: BookingMessageRecord[];
   moderation: BookingModerationRecord;
+  reviewedByMe?: boolean;
   createdAt?: string;
   updatedAt?: string;
 };

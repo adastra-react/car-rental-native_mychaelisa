@@ -33,6 +33,8 @@ export type VehicleListing = {
   id: string;
   ownerId: string;
   ownerName?: string;
+  ownerAverageRating?: number;
+  ownerReviewCount?: number;
   category?: VehicleCategory;
   make: string;
   model: string;
@@ -57,6 +59,8 @@ export type VehicleListing = {
   status: VehicleListingStatus;
   blockedDates: string[];
   photos: VehiclePhoto[];
+  averageRating?: number;
+  reviewCount?: number;
   createdAt?: string;
   updatedAt?: string;
 };

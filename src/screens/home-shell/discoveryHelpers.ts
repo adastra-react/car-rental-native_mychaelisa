@@ -36,12 +36,12 @@ export function getListingYear(listing: VehicleListing) {
   return match ? match[0] : "";
 }
 
-export function getListingRating(_listing: VehicleListing) {
-  return 5.0;
+export function getListingRating(listing: VehicleListing) {
+  return listing.averageRating ?? 0;
 }
 
-export function getListingRatingCount(_listing: VehicleListing) {
-  return 0;
+export function getListingRatingCount(listing: VehicleListing) {
+  return listing.reviewCount ?? 0;
 }
 
 export function getHomeVehicleCategory(
