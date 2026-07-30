@@ -180,9 +180,15 @@ export function DiscoveryVehicleCard({
         <View style={styles.discoveryVehicleMetaRow}>
           {year ? <Text style={styles.discoveryVehicleMeta}>{year}</Text> : null}
           <Text style={styles.discoveryVehicleMeta}>•</Text>
-          <Text style={styles.discoveryVehicleMeta}>{rating.toFixed(1)}</Text>
-          <Ionicons name='star' size={14} color={palette.secondary} />
-          <Text style={styles.discoveryVehicleMeta}>({ratingCount})</Text>
+          {ratingCount > 0 ? (
+            <>
+              <Text style={styles.discoveryVehicleMeta}>{rating.toFixed(1)}</Text>
+              <Ionicons name='star' size={14} color={palette.secondary} />
+              <Text style={styles.discoveryVehicleMeta}>({ratingCount})</Text>
+            </>
+          ) : (
+            <Text style={styles.discoveryVehicleMeta}>New listing</Text>
+          )}
         </View>
         <View style={styles.discoveryVehiclePriceStack}>
           <Text style={styles.discoveryVehiclePrice}>
