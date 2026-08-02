@@ -76,7 +76,7 @@ import {
   KINGSTON_AIRPORT_PICKUP_POINT_ID,
   MBJ_AIRPORT_PICKUP_POINT_ID,
 } from "../data/pickupPoints";
-import { UploadAsset } from "../services/auth";
+import { fetchCurrentUser, UploadAsset } from "../services/auth";
 import {
   createVehicleListing,
   deleteVehiclePhoto,
@@ -437,6 +437,19 @@ export function HomeShell() {
     }
   }, [token]);
 
+  const refreshCurrentUser = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+
+    try {
+      const response = await fetchCurrentUser(token);
+      dispatch(updateUser(response.user));
+    } catch (error) {
+      console.error("Unable to refresh current user:", error);
+    }
+  }, [dispatch, token]);
+
   const refreshDamageClaims = useCallback(async () => {
     if (!token) {
       setDamageClaims([]);
@@ -719,6 +732,7 @@ export function HomeShell() {
 
     const receivedSubscription =
       Notifications.addNotificationReceivedListener(() => {
+        void refreshCurrentUser();
         void refreshNotifications();
         void refreshBookings();
         void refreshDamageClaims();
@@ -727,6 +741,7 @@ export function HomeShell() {
 
     const responseSubscription =
       Notifications.addNotificationResponseReceivedListener(() => {
+        void refreshCurrentUser();
         void refreshNotifications();
         void refreshBookings();
         void refreshDamageClaims();
@@ -737,7 +752,14 @@ export function HomeShell() {
       receivedSubscription.remove();
       responseSubscription.remove();
     };
-  }, [refreshBookings, refreshDamageClaims, refreshNotifications, refreshPayouts, token]);
+  }, [
+    refreshBookings,
+    refreshCurrentUser,
+    refreshDamageClaims,
+    refreshNotifications,
+    refreshPayouts,
+    token,
+  ]);
 
   useEffect(() => {
     if (!token) {
@@ -751,6 +773,7 @@ export function HomeShell() {
     };
     const handleNotificationsChanged = () => {
       void refreshNotifications();
+      void refreshCurrentUser();
     };
     const handleClaimsChanged = () => {
       void refreshDamageClaims();
@@ -761,6 +784,14 @@ export function HomeShell() {
     const handlePayoutsChanged = () => {
       void refreshPayouts();
     };
+    const handleUserChanged = (payload?: { user?: AuthUser }) => {
+      if (payload?.user) {
+        dispatch(updateUser(payload.user));
+        return;
+      }
+
+      void refreshCurrentUser();
+    };
     const handleConnectError = (error: Error) => {
       console.error("Socket connection failed:", error);
     };
@@ -770,6 +801,7 @@ export function HomeShell() {
     socket.on("claims:changed", handleClaimsChanged);
     socket.on("reviews:changed", handleReviewsChanged);
     socket.on("payouts:changed", handlePayoutsChanged);
+    socket.on("user:changed", handleUserChanged);
     socket.on("connect_error", handleConnectError);
 
     return () => {
@@ -778,9 +810,18 @@ export function HomeShell() {
       socket.off("claims:changed", handleClaimsChanged);
       socket.off("reviews:changed", handleReviewsChanged);
       socket.off("payouts:changed", handlePayoutsChanged);
+      socket.off("user:changed", handleUserChanged);
       socket.off("connect_error", handleConnectError);
     };
-  }, [refreshBookings, refreshDamageClaims, refreshNotifications, refreshPayouts, token]);
+  }, [
+    dispatch,
+    refreshBookings,
+    refreshCurrentUser,
+    refreshDamageClaims,
+    refreshNotifications,
+    refreshPayouts,
+    token,
+  ]);
 
   const openTrip = (tripId: string) => {
     setSelectedTripId(tripId);
