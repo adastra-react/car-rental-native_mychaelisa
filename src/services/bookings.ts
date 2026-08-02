@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../config/api";
+import { fetchWithTimeout } from "./httpClient";
 import {
   BookingRecord,
   BookingStatus,
@@ -32,7 +33,7 @@ async function request<T>(path: string, options: RequestOptions): Promise<T> {
   let response: Response;
 
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
       method,
       headers: {
         Accept: "application/json",

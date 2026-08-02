@@ -1,7 +1,7 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 
-const DEFAULT_PORT = "3000";
+const DEFAULT_PORT = "5001";
 
 function stripTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");

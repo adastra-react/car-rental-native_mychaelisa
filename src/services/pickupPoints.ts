@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../config/api";
+import { fetchWithTimeout } from "./httpClient";
 import { PickupPoint } from "../data/pickupPoints";
 
 type PickupPointListEnvelope = {
@@ -7,9 +8,17 @@ type PickupPointListEnvelope = {
 };
 
 export async function fetchPickupPoints() {
-  const response = await fetch(`${API_BASE_URL}/pickup-points`, {
-    headers: { Accept: "application/json" },
-  });
+  let response: Response;
+
+  try {
+    response = await fetchWithTimeout(`${API_BASE_URL}/pickup-points`, {
+      headers: { Accept: "application/json" },
+    });
+  } catch (error) {
+    throw new Error(
+      `Could not connect to the server at ${API_BASE_URL}. Make sure car-rental-server is running.`,
+    );
+  }
 
   const text = await response.text();
   const data = text ? (JSON.parse(text) as PickupPointListEnvelope) : null;

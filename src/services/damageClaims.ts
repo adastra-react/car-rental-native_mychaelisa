@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../config/api";
+import { fetchWithTimeout } from "./httpClient";
 import { UploadAsset } from "./auth";
 import {
   DamageClaimRecord,
@@ -27,7 +28,7 @@ async function request<TResponse>(
   let response: Response;
 
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
       method,
       headers: {
         Accept: "application/json",
@@ -67,6 +68,7 @@ function uploadFormData<T>(
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${API_BASE_URL}${path}`);
     xhr.responseType = "text";
+    xhr.timeout = 45000;
     xhr.setRequestHeader("Accept", "application/json");
     xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
@@ -91,6 +93,14 @@ function uploadFormData<T>(
     };
 
     xhr.onerror = () => {
+      reject(
+        new Error(
+          `Could not connect to the server at ${API_BASE_URL}. Make sure car-rental-server is running.`,
+        ),
+      );
+    };
+
+    xhr.ontimeout = () => {
       reject(
         new Error(
           `Could not connect to the server at ${API_BASE_URL}. Make sure car-rental-server is running.`,

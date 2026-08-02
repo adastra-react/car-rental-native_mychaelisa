@@ -22,7 +22,10 @@ export function createSocket(token?: string) {
   );
   socket = io(url, {
     auth: token ? { token } : undefined,
-    transports: ["websocket"],
+    transports: ["polling", "websocket"],
+    // Render's free tier cold-starts in 30-60s; give the handshake room
+    // beyond socket.io-client's 20s default before giving up.
+    timeout: 45000,
   });
   return socket;
 }

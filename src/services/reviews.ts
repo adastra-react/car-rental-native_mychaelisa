@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "../config/api";
+import { fetchWithTimeout } from "./httpClient";
 import { ReviewRecord, SubmitReviewPayload } from "../types/review";
 
 type ReviewEnvelope = {
@@ -22,7 +23,7 @@ async function request<TResponse>(
   let response: Response;
 
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
       method,
       headers: {
         Accept: "application/json",
