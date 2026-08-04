@@ -164,17 +164,30 @@ export function getNearbyVehicleListings(
   };
 }
 
+const SVG_PARISH_LAYOUT: Record<
+  string,
+  { x: number; y: number; labelDx: number; labelDy: number }
+> = {
+  Hanover: { x: 160, y: 78, labelDx: -34, labelDy: -22 },
+  Westmoreland: { x: 150, y: 185, labelDx: -66, labelDy: 26 },
+  "St. James": { x: 250, y: 35, labelDx: -49, labelDy: -20 },
+  Trelawny: { x: 332, y: 48, labelDx: -38, labelDy: -22 },
+  "St. Ann": { x: 440, y: 50, labelDx: -40, labelDy: -30 },
+  "St. Mary": { x: 540, y: 86, labelDx: -42, labelDy: -20 },
+  Portland: { x: 790, y: 142, labelDx: -32, labelDy: -18 },
+  "St. Thomas": { x: 800, y: 252, labelDx: -44, labelDy: 34 },
+  Kingston: { x: 690, y: 240, labelDx: -49, labelDy: 39 },
+  "St. Andrew": { x: 654, y: 204, labelDx: -46, labelDy: -24 },
+  "St. Catherine": { x: 576, y: 240, labelDx: -50, labelDy: 32 },
+  Clarendon: { x: 490, y: 286, labelDx: -46, labelDy: 32 },
+  Manchester: { x: 400, y: 276, labelDx: -48, labelDy: 30 },
+  "St. Elizabeth": { x: 282, y: 268, labelDx: -56, labelDy: 30 },
+};
+
 function getParishMapPosition(parish: string) {
-  switch (parish) {
-    case "Kingston":
-      return { x: 690, y: 240, labelDx: -49, labelDy: 39 };
-    case "St. James":
-      return { x: 250, y: 35, labelDx: -49, labelDy: -20 };
-    case "St. Ann":
-      return { x: 440, y: 50, labelDx: -40, labelDy: -30 };
-    default:
-      return { x: 654, y: 204, labelDx: -20, labelDy: -18 };
-  }
+  return (
+    SVG_PARISH_LAYOUT[parish] ?? { x: 654, y: 204, labelDx: -20, labelDy: -18 }
+  );
 }
 
 export function buildExploreMapRegions(
