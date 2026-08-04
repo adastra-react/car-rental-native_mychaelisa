@@ -21,9 +21,13 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { AppMode, BottomNav } from "../components/BottomNav";
+import {
+  AppMode,
+  BottomNav,
+  BOTTOM_NAV_CONTENT_INSET,
+} from "../components/BottomNav";
 import { createSocket, disconnectSocket } from "../components/socket";
 import {
   createBooking,
@@ -2076,9 +2080,14 @@ function MessagesScreen({
   hostMode: boolean;
   onOpenChat: (chatId: string) => void;
 }) {
+  const insets = useSafeAreaInsets();
+
   return (
     <ScrollView
-      contentContainerStyle={styles.scrollContent}
+      contentContainerStyle={[
+        styles.scrollContent,
+        { paddingBottom: BOTTOM_NAV_CONTENT_INSET + insets.bottom },
+      ]}
       showsVerticalScrollIndicator={false}>
       <PageHeader
         title={hostMode ? "Host Inbox" : "Messages"}
@@ -2182,6 +2191,7 @@ function RenterProfileScreen({
   onOpenHostMode: () => void;
   onLogout: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const profileName = user?.name?.trim() || "Your account";
   const profileEmail = user?.email || "No email on file";
   const profilePhone = user?.phone?.trim() || "Add phone number";
@@ -2191,7 +2201,10 @@ function RenterProfileScreen({
 
   return (
     <ScrollView
-      contentContainerStyle={styles.profileScroll}
+      contentContainerStyle={[
+        styles.profileScroll,
+        { paddingBottom: BOTTOM_NAV_CONTENT_INSET + insets.bottom },
+      ]}
       showsVerticalScrollIndicator={false}>
       <View style={styles.profileHeader}>
         <View style={styles.avatarCircle}>
@@ -5169,13 +5182,17 @@ function HostProfileScreen({
   onOpenPickupPointNetwork: () => void;
   onLogout: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const profileName = user?.name?.trim() || "Your account";
   const profileEmail = user?.email || "No email on file";
   const initials = getUserInitials(user);
 
   return (
     <ScrollView
-      contentContainerStyle={styles.profileScroll}
+      contentContainerStyle={[
+        styles.profileScroll,
+        { paddingBottom: BOTTOM_NAV_CONTENT_INSET + insets.bottom },
+      ]}
       showsVerticalScrollIndicator={false}>
       <View style={styles.profileHeader}>
         <View style={styles.avatarCircle}>

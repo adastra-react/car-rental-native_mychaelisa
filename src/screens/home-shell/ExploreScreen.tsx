@@ -645,39 +645,65 @@ export function ExploreScreen({
           <Pressable
             style={styles.resultContentPressable}
             onPress={() => onOpenVehicle(vehicle.id)}>
-            {vehicle.photos[0]?.url ? (
-              <Image
-                source={{ uri: vehicle.photos[0].url }}
-                style={styles.resultImage}
-                resizeMode='cover'
-              />
-            ) : (
-              <View
-                style={[
-                  styles.resultCardAccent,
-                  { backgroundColor: getBrowseListingAccent(index) },
-                ]}
-              />
-            )}
+            <View style={styles.resultMediaShell}>
+              {vehicle.photos[0]?.url ? (
+                <Image
+                  source={{ uri: vehicle.photos[0].url }}
+                  style={styles.resultImage}
+                  resizeMode='cover'
+                />
+              ) : (
+                <View
+                  style={[
+                    styles.resultCardAccent,
+                    { backgroundColor: getBrowseListingAccent(index) },
+                  ]}>
+                  <Ionicons name='car-sport' size={30} color='#08110E' />
+                </View>
+              )}
+              <View style={styles.resultMediaShade} />
+              <View style={styles.resultFloatingPrice}>
+                <Text style={styles.resultFloatingPriceValue}>
+                  JMD {vehicle.dailyRate.toLocaleString()}
+                </Text>
+                <Text style={styles.resultFloatingPriceLabel}>per day</Text>
+              </View>
+            </View>
             <View style={styles.resultCardBody}>
+              <View style={styles.resultEyebrowRow}>
+                <Text style={styles.resultEyebrowText}>
+                  {getListingParish(vehicle.location, vehicle.parishCode)}
+                </Text>
+                <Text style={styles.resultEyebrowDot}>•</Text>
+                <Text style={styles.resultEyebrowText}>
+                  {vehicle.condition || "Ready"}
+                </Text>
+              </View>
               <View style={styles.resultHeaderRow}>
                 <View style={styles.resultTitleWrap}>
-                  <Text style={styles.resultTitle}>
+                  <Text style={styles.resultTitle} numberOfLines={2}>
                     {getListingTitle(vehicle)}
                   </Text>
-                  <Text style={styles.resultSubtitle}>{vehicle.location}</Text>
-                </View>
-                <View style={styles.resultPriceWrap}>
-                  <Text style={styles.resultPrice}>
-                    JMD {vehicle.dailyRate.toLocaleString()}
+                  <Text style={styles.resultSubtitle} numberOfLines={2}>
+                    {vehicle.location}
                   </Text>
-                  <Text style={styles.resultPriceLabel}>per day</Text>
                 </View>
               </View>
-              <Text style={styles.resultSpecs}>
-                {vehicle.transmission} · {vehicle.fuelType} · {vehicle.seats}{" "}
-                seats
-              </Text>
+              <View style={styles.resultSpecPills}>
+                <View style={styles.resultSpecPill}>
+                  <Text style={styles.resultSpecPillText}>
+                    {vehicle.transmission}
+                  </Text>
+                </View>
+                <View style={styles.resultSpecPill}>
+                  <Text style={styles.resultSpecPillText}>{vehicle.fuelType}</Text>
+                </View>
+                <View style={styles.resultSpecPill}>
+                  <Text style={styles.resultSpecPillText}>
+                    {vehicle.seats} seats
+                  </Text>
+                </View>
+              </View>
               <View style={styles.resultMetaRow}>
                 <StatusChip label='Active' tone='success' />
                 <StatusChip
@@ -686,10 +712,17 @@ export function ExploreScreen({
                 />
               </View>
               <View style={styles.resultHostBlock}>
-                <Text style={styles.resultHostLabel}>Host</Text>
-                <Text style={styles.resultHostName}>
-                  {vehicle.ownerName?.trim() || "Host"}
-                </Text>
+                <View style={styles.resultHostAvatar}>
+                  <Text style={styles.resultHostAvatarText}>
+                    {(vehicle.ownerName?.trim() || "H").slice(0, 1).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={styles.resultHostCopy}>
+                  <Text style={styles.resultHostLabel}>Hosted by</Text>
+                  <Text style={styles.resultHostName}>
+                    {vehicle.ownerName?.trim() || "Host"}
+                  </Text>
+                </View>
               </View>
             </View>
           </Pressable>

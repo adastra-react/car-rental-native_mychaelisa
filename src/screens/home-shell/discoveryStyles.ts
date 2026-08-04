@@ -625,26 +625,84 @@ export const discoveryStyles = StyleSheet.create({
   },
   resultCard: {
     backgroundColor: palette.surface,
-    borderRadius: radii.xl,
+    borderRadius: radii.xxl,
     borderWidth: 1,
-    borderColor: palette.outline,
+    borderColor: "rgba(255,255,255,0.08)",
     overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 22,
+    elevation: 8,
   },
   resultContentPressable: {
-    flexDirection: "row",
+    backgroundColor: "#131519",
+  },
+  resultMediaShell: {
+    height: 194,
+    position: "relative",
+    overflow: "hidden",
+    backgroundColor: palette.surfaceVariant,
   },
   resultCardAccent: {
-    width: 6,
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resultMediaShade: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 88,
+    backgroundColor: "rgba(5,6,8,0.34)",
   },
   resultImage: {
-    width: 124,
-    minHeight: 156,
+    width: "100%",
+    height: "100%",
     backgroundColor: palette.surfaceVariant,
+  },
+  resultFloatingPrice: {
+    position: "absolute",
+    right: spacing.md,
+    bottom: spacing.md,
+    alignItems: "flex-end",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 18,
+    backgroundColor: "rgba(9,13,17,0.84)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  resultFloatingPriceValue: {
+    color: "#EAFEF6",
+    ...typography.titleLarge,
+  },
+  resultFloatingPriceLabel: {
+    color: "rgba(226,232,240,0.72)",
+    ...typography.labelSmall,
   },
   resultCardBody: {
     flex: 1,
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.lg,
     gap: spacing.sm,
+  },
+  resultEyebrowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  resultEyebrowText: {
+    color: palette.onSurfaceVariant,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    ...typography.labelSmall,
+  },
+  resultEyebrowDot: {
+    color: palette.onSurfaceVariant,
+    ...typography.labelSmall,
   },
   resultHeaderRow: {
     flexDirection: "row",
@@ -655,9 +713,6 @@ export const discoveryStyles = StyleSheet.create({
   resultTitleWrap: {
     flex: 1,
   },
-  resultPriceWrap: {
-    alignItems: "flex-end",
-  },
   resultTitle: {
     color: palette.onSurface,
     ...typography.titleLarge,
@@ -667,27 +722,52 @@ export const discoveryStyles = StyleSheet.create({
     marginTop: spacing.xs,
     ...typography.bodySmall,
   },
-  resultSpecs: {
+  resultSpecPills: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+  },
+  resultSpecPill: {
+    borderRadius: radii.round,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  resultSpecPillText: {
     color: palette.onSurfaceSoft,
-    ...typography.bodySmall,
+    ...typography.labelMedium,
   },
   resultMetaRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.xs,
   },
-  resultPrice: {
+  resultHostBlock: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingTop: spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  resultHostAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(33,216,160,0.14)",
+    borderWidth: 1,
+    borderColor: "rgba(33,216,160,0.2)",
+  },
+  resultHostAvatarText: {
     color: palette.primary,
     ...typography.titleMedium,
   },
-  resultPriceLabel: {
-    color: palette.onSurfaceVariant,
-    ...typography.bodySmall,
-  },
-  resultHostBlock: {
-    paddingTop: spacing.xs,
-    borderTopWidth: 1,
-    borderTopColor: palette.outline,
+  resultHostCopy: {
+    flex: 1,
   },
   resultHostLabel: {
     color: palette.onSurfaceVariant,
@@ -695,18 +775,18 @@ export const discoveryStyles = StyleSheet.create({
   },
   resultHostName: {
     color: palette.onSurface,
-    marginTop: 4,
+    marginTop: 2,
     ...typography.bodyMedium,
   },
   resultActionsRow: {
     flexDirection: "row",
     gap: spacing.sm,
     paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
+    paddingTop: spacing.md,
     paddingBottom: spacing.md,
     borderTopWidth: 1,
-    borderTopColor: palette.outline,
-    backgroundColor: "rgba(255,255,255,0.01)",
+    borderTopColor: "rgba(255,255,255,0.08)",
+    backgroundColor: "rgba(255,255,255,0.02)",
   },
   statusChip: {
     borderRadius: radii.round,
