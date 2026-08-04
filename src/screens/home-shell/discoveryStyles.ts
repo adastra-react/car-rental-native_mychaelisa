@@ -649,38 +649,10 @@ export const discoveryStyles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  resultMediaShade: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 88,
-    backgroundColor: "rgba(5,6,8,0.34)",
-  },
   resultImage: {
     width: "100%",
     height: "100%",
     backgroundColor: palette.surfaceVariant,
-  },
-  resultFloatingPrice: {
-    position: "absolute",
-    right: spacing.md,
-    bottom: spacing.md,
-    alignItems: "flex-end",
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: 18,
-    backgroundColor: "rgba(9,13,17,0.84)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.12)",
-  },
-  resultFloatingPriceValue: {
-    color: "#EAFEF6",
-    ...typography.titleLarge,
-  },
-  resultFloatingPriceLabel: {
-    color: "rgba(226,232,240,0.72)",
-    ...typography.labelSmall,
   },
   resultCardBody: {
     flex: 1,
@@ -713,6 +685,10 @@ export const discoveryStyles = StyleSheet.create({
   resultTitleWrap: {
     flex: 1,
   },
+  resultPriceWrap: {
+    alignItems: "flex-end",
+    paddingLeft: spacing.sm,
+  },
   resultTitle: {
     color: palette.onSurface,
     ...typography.titleLarge,
@@ -726,6 +702,14 @@ export const discoveryStyles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.xs,
+  },
+  resultPrice: {
+    color: palette.primary,
+    ...typography.titleMedium,
+  },
+  resultPriceLabel: {
+    color: palette.onSurfaceVariant,
+    ...typography.bodySmall,
   },
   resultSpecPill: {
     borderRadius: radii.round,

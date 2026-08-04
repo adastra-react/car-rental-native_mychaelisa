@@ -172,7 +172,9 @@ export function inferParishCodeFromLocation(location: string) {
   const suffixText = suffix.join(" ");
 
   const suffixMatch = jamaicaParishCatalog.find((entry) =>
-    entry.aliases.some((alias) => suffixText.includes(normalizeGeoLookup(alias))),
+    entry.aliases.some((alias) =>
+      suffixText.includes(normalizeGeoLookup(alias)),
+    ),
   );
 
   if (suffixMatch) {
@@ -208,13 +210,19 @@ export function getListingParish(
   location: string,
   parishCode?: ParishCode | null,
 ) {
-  return getParishLabelFromCode(parishCode ?? inferParishCodeFromLocation(location)) ?? "Other";
+  return (
+    getParishLabelFromCode(
+      parishCode ?? inferParishCodeFromLocation(location),
+    ) ?? "Other"
+  );
 }
 
 export function getCoordinatesForListing(
   listing: Pick<VehicleListing, "location" | "parishCode">,
 ): Coordinates | null {
-  return getParishMetaByCode(getListingParishCode(listing))?.coordinates ?? null;
+  return (
+    getParishMetaByCode(getListingParishCode(listing))?.coordinates ?? null
+  );
 }
 
 export function calculateDistanceKm(a: Coordinates, b: Coordinates) {

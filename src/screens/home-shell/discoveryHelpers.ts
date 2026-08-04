@@ -1,8 +1,11 @@
 import { MockPickupPoint } from "../../data/mockAppData";
 import { ParishCode, VehicleListing } from "../../types/vehicle";
 import {
+  getListingParishCode,
   getParishLabelFromCode,
   getListingParish,
+  getParishCodeFromLabel,
+  jamaicaParishOptions,
 } from "./location";
 
 export type HomeVehicleCategory =
@@ -16,7 +19,7 @@ export type HomeVehicleCategory =
   | "buses";
 
 export type ExploreMapRegion = {
-  key: string;
+  key: ParishCode;
   label: string;
   x: number;
   y: number;
@@ -165,44 +168,54 @@ export function getNearbyVehicleListings(
 }
 
 const SVG_PARISH_LAYOUT: Record<
-  string,
+  ParishCode,
   { x: number; y: number; labelDx: number; labelDy: number }
 > = {
-  Hanover: { x: 160, y: 78, labelDx: -34, labelDy: -22 },
-  Westmoreland: { x: 150, y: 185, labelDx: -66, labelDy: 26 },
-  "St. James": { x: 250, y: 35, labelDx: -49, labelDy: -20 },
-  Trelawny: { x: 332, y: 48, labelDx: -38, labelDy: -22 },
-  "St. Ann": { x: 440, y: 50, labelDx: -40, labelDy: -30 },
-  "St. Mary": { x: 540, y: 86, labelDx: -42, labelDy: -20 },
-  Portland: { x: 790, y: 142, labelDx: -32, labelDy: -18 },
-  "St. Thomas": { x: 800, y: 252, labelDx: -44, labelDy: 34 },
-  Kingston: { x: 690, y: 240, labelDx: -49, labelDy: 39 },
-  "St. Andrew": { x: 654, y: 204, labelDx: -46, labelDy: -24 },
-  "St. Catherine": { x: 576, y: 240, labelDx: -50, labelDy: 32 },
-  Clarendon: { x: 490, y: 286, labelDx: -46, labelDy: 32 },
-  Manchester: { x: 400, y: 276, labelDx: -48, labelDy: 30 },
-  "St. Elizabeth": { x: 282, y: 268, labelDx: -56, labelDy: 30 },
+  HAN: { x: 110, y: 60, labelDx: -50, labelDy: -22 },
+  WES: { x: 110, y: 140, labelDx: -80, labelDy: 38 },
+  SJM: { x: 250, y: 35, labelDx: -49, labelDy: -20 },
+  TRL: { x: 370, y: 48, labelDx: -58, labelDy: 35 },
+  SAN: { x: 490, y: 50, labelDx: -40, labelDy: -30 },
+  SMY: { x: 640, y: 86, labelDx: -42, labelDy: -20 },
+  POR: { x: 860, y: 180, labelDx: -49, labelDy: -25 },
+  STT: { x: 880, y: 282, labelDx: -60, labelDy: 52 },
+  KIN: { x: 690, y: 240, labelDx: -49, labelDy: 39 },
+  STA: { x: 654, y: 204, labelDx: -46, labelDy: -24 },
+  SCA: { x: 576, y: 270, labelDx: -50, labelDy: 40 },
+  CLA: { x: 460, y: 266, labelDx: -66, labelDy: -25 },
+  MAN: { x: 340, y: 280, labelDx: -48, labelDy: 30 },
+  SEL: { x: 230, y: 220, labelDx: -68, labelDy: 40 },
 };
 
-function getParishMapPosition(parish: string) {
-  return (
-    SVG_PARISH_LAYOUT[parish] ?? { x: 654, y: 204, labelDx: -20, labelDy: -18 }
-  );
+function getParishMapPosition(parishCode: ParishCode) {
+  return SVG_PARISH_LAYOUT[parishCode];
 }
+
+const PARISH_DISPLAY_ORDER = jamaicaParishOptions
+  .map((parish) => getParishCodeFromLabel(parish))
+  .filter((code): code is ParishCode => Boolean(code));
 
 export function buildExploreMapRegions(
   listings: VehicleListing[],
   pickupPoints: MockPickupPoint[],
 ) {
-  const regionMap = new Map<string, ExploreMapRegion>();
+  const regionMap = new Map<ParishCode, ExploreMapRegion>();
 
   listings.forEach((vehicle) => {
-    const parish = getListingParish(vehicle.location, vehicle.parishCode);
-    const position = getParishMapPosition(parish);
-    const existing = regionMap.get(parish);
+    const parishCode = getListingParishCode(vehicle);
 
-    regionMap.set(parish, {
-      key: parish,
+    if (!parishCode) {
+      return;
+    }
+
+    const parish =
+      getParishLabelFromCode(parishCode) ??
+      getListingParish(vehicle.location, vehicle.parishCode);
+    const position = getParishMapPosition(parishCode);
+    const existing = regionMap.get(parishCode);
+
+    regionMap.set(parishCode, {
+      key: parishCode,
       label: parish,
       x: position.x,
       y: position.y,
@@ -211,18 +224,18 @@ export function buildExploreMapRegions(
       vehicleCount: (existing?.vehicleCount ?? 0) + 1,
       pickupCount:
         existing?.pickupCount ??
-        pickupPoints.filter((point) => point.parish === parish).length,
+        pickupPoints.filter((point) => point.parishCode === parishCode).length,
     });
   });
 
   pickupPoints.forEach((point) => {
-    if (regionMap.has(point.parish)) {
+    if (regionMap.has(point.parishCode)) {
       return;
     }
 
-    const position = getParishMapPosition(point.parish);
-    regionMap.set(point.parish, {
-      key: point.parish,
+    const position = getParishMapPosition(point.parishCode);
+    regionMap.set(point.parishCode, {
+      key: point.parishCode,
       label: point.parish,
       x: position.x,
       y: position.y,
@@ -230,12 +243,15 @@ export function buildExploreMapRegions(
       labelDy: position.labelDy,
       vehicleCount: 0,
       pickupCount: pickupPoints.filter(
-        (pickupPoint) => pickupPoint.parish === point.parish,
+        (pickupPoint) => pickupPoint.parishCode === point.parishCode,
       ).length,
     });
   });
 
-  return [...regionMap.values()].sort((a, b) => b.vehicleCount - a.vehicleCount);
+  return [...regionMap.values()].sort(
+    (a, b) =>
+      PARISH_DISPLAY_ORDER.indexOf(a.key) - PARISH_DISPLAY_ORDER.indexOf(b.key),
+  );
 }
 
 export function buildRenterHomeSections(listings: VehicleListing[]) {

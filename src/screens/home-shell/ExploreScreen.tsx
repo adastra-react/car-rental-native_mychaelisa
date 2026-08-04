@@ -16,7 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { MockPickupPoint } from "../../data/mockAppData";
-import { VehicleListing } from "../../types/vehicle";
+import { ParishCode, VehicleListing } from "../../types/vehicle";
 import { colors } from "../../theme/tokens";
 import { BOTTOM_NAV_CONTENT_INSET } from "../../components/BottomNav";
 import {
@@ -37,7 +37,10 @@ import {
   JAMAICA_OUTLINE_PATH,
   MAP_VIEWBOX,
   jamaicaParishOptions,
+  getListingParishCode,
   getListingParish,
+  getParishCodeFromLabel,
+  getParishLabelFromCode,
 } from "./location";
 import { discoveryStyles as styles } from "./discoveryStyles";
 
@@ -82,7 +85,7 @@ export function ExploreScreen({
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState("");
   const [listMode, setListMode] = useState<"list" | "map">("list");
-  const [selectedMapArea, setSelectedMapArea] = useState<string | null>(null);
+  const [selectedMapArea, setSelectedMapArea] = useState<ParishCode | null>(null);
   const [selectedVehicleType, setSelectedVehicleType] =
     useState<ExploreVehicleTypeFilter>("all");
   const [selectedParish, setSelectedParish] = useState<ParishFilter>("All");
@@ -109,19 +112,17 @@ export function ExploreScreen({
   );
 
   const effectiveMapArea =
-    selectedMapArea ?? (selectedParish === "All" ? null : selectedParish);
+    selectedMapArea ??
+    (selectedParish === "All" ? null : getParishCodeFromLabel(selectedParish));
 
-  const filteredVehicles = useMemo(() => {
+  const baseFilteredVehicles = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     return listings.filter((vehicle) => {
       const listingParish = getListingParish(vehicle.location, vehicle.parishCode);
-      const matchesMapArea = !effectiveMapArea || listingParish === effectiveMapArea;
       const matchesVehicleType =
         selectedVehicleType === "all" ||
         getHomeVehicleCategory(vehicle) === selectedVehicleType;
-      const matchesParish =
-        selectedParish === "All" || listingParish === selectedParish;
       const matchesPrice = matchesPriceRange(vehicle.dailyRate, selectedPriceRange);
       const matchesAvailability =
         !availabilityOnly ||
@@ -129,18 +130,14 @@ export function ExploreScreen({
 
       if (!query) {
         return (
-          matchesMapArea &&
           matchesVehicleType &&
-          matchesParish &&
           matchesPrice &&
           matchesAvailability
         );
       }
 
       return (
-        matchesMapArea &&
         matchesVehicleType &&
-        matchesParish &&
         matchesPrice &&
         matchesAvailability &&
         (getListingTitle(vehicle).toLowerCase().includes(query) ||
@@ -153,17 +150,30 @@ export function ExploreScreen({
   }, [
     availabilityOnly,
     bookingDates,
-    effectiveMapArea,
     listings,
     search,
-    selectedParish,
     selectedPriceRange,
     selectedVehicleType,
   ]);
 
+  const filteredVehicles = useMemo(
+    () =>
+      baseFilteredVehicles.filter((vehicle) => {
+        const listingParishCode = getListingParishCode(vehicle);
+        const listingParish = getListingParish(vehicle.location, vehicle.parishCode);
+        const matchesMapArea =
+          !effectiveMapArea || listingParishCode === effectiveMapArea;
+        const matchesParish =
+          selectedParish === "All" || listingParish === selectedParish;
+
+        return matchesMapArea && matchesParish;
+      }),
+    [baseFilteredVehicles, effectiveMapArea, selectedParish],
+  );
+
   const mapRegions = useMemo(
-    () => buildExploreMapRegions(filteredVehicles, pickupPoints),
-    [filteredVehicles, pickupPoints],
+    () => buildExploreMapRegions(baseFilteredVehicles, pickupPoints),
+    [baseFilteredVehicles, pickupPoints],
   );
 
   const selectedRegion =
@@ -296,7 +306,9 @@ export function ExploreScreen({
               selected={selectedParish === parish}
               onPress={() => {
                 setSelectedParish(parish);
-                setSelectedMapArea(parish === "All" ? null : parish);
+                setSelectedMapArea(
+                  parish === "All" ? null : getParishCodeFromLabel(parish),
+                );
               }}
             />
           ))}
@@ -661,13 +673,6 @@ export function ExploreScreen({
                   <Ionicons name='car-sport' size={30} color='#08110E' />
                 </View>
               )}
-              <View style={styles.resultMediaShade} />
-              <View style={styles.resultFloatingPrice}>
-                <Text style={styles.resultFloatingPriceValue}>
-                  JMD {vehicle.dailyRate.toLocaleString()}
-                </Text>
-                <Text style={styles.resultFloatingPriceLabel}>per day</Text>
-              </View>
             </View>
             <View style={styles.resultCardBody}>
               <View style={styles.resultEyebrowRow}>
@@ -687,6 +692,12 @@ export function ExploreScreen({
                   <Text style={styles.resultSubtitle} numberOfLines={2}>
                     {vehicle.location}
                   </Text>
+                </View>
+                <View style={styles.resultPriceWrap}>
+                  <Text style={styles.resultPrice}>
+                    JMD {vehicle.dailyRate.toLocaleString()}
+                  </Text>
+                  <Text style={styles.resultPriceLabel}>per day</Text>
                 </View>
               </View>
               <View style={styles.resultSpecPills}>
@@ -774,14 +785,12 @@ function getPriceFilterLabel(filter: ExplorePriceFilter) {
   }
 }
 
-function getParishFilterValue(value: string | null): ParishFilter {
+function getParishFilterValue(value: ParishCode | null): ParishFilter {
   if (!value) {
     return "All";
   }
 
-  return jamaicaParishOptions.includes(value as (typeof jamaicaParishOptions)[number])
-    ? (value as ParishFilter)
-    : "All";
+  return getParishLabelFromCode(value) ?? "All";
 }
 
 function isIsoDate(value: string) {
